@@ -1,0 +1,79 @@
+{% extends 'base.html' %}
+
+{% block title %}Dashboard - News Updater{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-md-8">
+        <h1>Your News Dashboard</h1>
+    </div>
+    <div class="col-md-4 text-end">
+        <a href="{% url 'send_now' %}" class="btn btn-success">Send News Update Now</a>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-8">
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h2 class="mb-0">Your News Sections</h2>
+                <a href="{% url 'add_news_section' %}" class="btn btn-primary btn-sm">Add Section</a>
+            </div>
+            <div class="card-body">
+                {% if news_sections %}
+                    <div class="list-group">
+                        {% for section in news_sections %}
+                            <div class="list-group-item">
+                                <div class="d-flex w-100 justify-content-between">
+                                    <h5 class="mb-1">{{ section.name }}</h5>
+                                    <small>Created: {{ section.created_at|date:"M d, Y" }}</small>
+                                </div>
+                                <p class="mb-1"><strong>Sources:</strong> {{ section.sources }}</p>
+                                <p class="mb-1"><strong>Instructions:</strong> {{ section.prompt }}</p>
+                                <div class="mt-2">
+                                    <a href="{% url 'edit_news_section' section.id %}" class="btn btn-sm btn-outline-primary">Edit</a>
+                                    <a href="{% url 'delete_news_section' section.id %}" class="btn btn-sm btn-outline-danger">Delete</a>
+                                </div>
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <div class="alert alert-info">
+                        You haven't added any news sections yet. <a href="{% url 'add_news_section' %}">Add your first section</a> to get started.
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">
+                <h2 class="mb-0">Delivery Schedule</h2>
+            </div>
+            <div class="card-body">
+                <p>Select the times when you want to receive your news updates:</p>
+                
+                <form method="post" action="{% url 'update_time_slots' %}">
+                    {% csrf_token %}
+                    
+                    <div class="time-slots-container mb-3">
+                        {% for choice in time_slot_form.time_slots %}
+                            <div class="form-check">
+                                {{ choice.tag }}
+                                <label class="form-check-label" for="{{ choice.id_for_label }}">
+                                    {{ choice.choice_label }}
+                                </label>
+                            </div>
+                        {% endfor %}
+                    </div>
+                    
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-primary">Update Schedule</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

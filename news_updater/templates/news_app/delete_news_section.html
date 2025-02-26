@@ -1,0 +1,28 @@
+{% extends 'base.html' %}
+
+{% block title %}Delete News Section - News Updater{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h2 class="text-center">Delete News Section</h2>
+            </div>
+            <div class="card-body">
+                <p class="text-center">Are you sure you want to delete the news section "{{ section.name }}"?</p>
+                <p class="text-center text-danger">This action cannot be undone.</p>
+                
+                <form method="post" novalidate>
+                    {% csrf_token %}
+                    
+                    <div class="d-grid gap-2">
+                        <button type="submit" class="btn btn-danger">Delete Section</button>
+                        <a href="{% url 'dashboard' %}" class="btn btn-outline-secondary">Cancel</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

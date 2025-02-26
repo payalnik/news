@@ -1,0 +1,41 @@
+[Celery-Worker]  
+[Celery-Worker]  -------------- celery@ailyin-mn1.linkedin.biz v5.3.6 (emerald-rush)
+[Celery-Worker] --- ***** ----- 
+[Celery-Worker] -- ******* ---- macOS-15.3.1-arm64-arm-64bit 2025-02-26 22:27:51
+[Celery-Worker] - *** --- * --- 
+[Celery-Worker] - ** ---------- [config]
+[Celery-Worker] - ** ---------- .> app:         news_updater:0x109698fd0
+[Celery-Worker] - ** ---------- .> transport:   redis://localhost:6379/0
+[Celery-Worker] - ** ---------- .> results:     redis://localhost:6379/0
+[Celery-Worker] - *** --- * --- .> concurrency: 10 (prefork)
+[Celery-Worker] -- ******* ---- .> task events: OFF (enable -E to monitor tasks in this worker)
+[Celery-Worker] --- ***** ----- 
+[Celery-Worker]  -------------- [queues]
+[Celery-Worker]                 .> celery           exchange=celery(direct) key=celery
+[Celery-Worker]                 
+[Celery-Worker] 
+[Celery-Worker] [tasks]
+[Celery-Worker]   . news_app.tasks.check_scheduled_emails
+[Celery-Worker]   . news_app.tasks.send_news_update
+[Celery-Worker]   . news_updater.celery.debug_task
+[Celery-Worker] 
+[Celery-Worker] [2025-02-26 22:27:51,696: WARNING/MainProcess] /Users/ailyin/code/news2/venv/lib/python3.11/site-packages/celery/worker/consumer/consumer.py:507: CPendingDeprecationWarning: The broker_connection_retry configuration setting will no longer determine
+[Celery-Worker] whether broker connection retries are made during startup in Celery 6.0 and above.
+[Celery-Worker] If you wish to retain the existing behavior for retrying connections on startup,
+[Celery-Worker] you should set broker_connection_retry_on_startup to True.
+[Celery-Worker]   warnings.warn(
+[Celery-Worker] 
+[Celery-Worker] [2025-02-26 22:27:51,725: INFO/MainProcess] Connected to redis://localhost:6379/0
+[Celery-Worker] [2025-02-26 22:27:51,726: WARNING/MainProcess] /Users/ailyin/code/news2/venv/lib/python3.11/site-packages/celery/worker/consumer/consumer.py:507: CPendingDeprecationWarning: The broker_connection_retry configuration setting will no longer determine
+[Celery-Worker] whether broker connection retries are made during startup in Celery 6.0 and above.
+[Celery-Worker] If you wish to retain the existing behavior for retrying connections on startup,
+[Celery-Worker] you should set broker_connection_retry_on_startup to True.
+[Celery-Worker]   warnings.warn(
+[Celery-Worker] 
+[Celery-Worker] [2025-02-26 22:27:51,737: INFO/MainProcess] mingle: searching for neighbors
+[Celery-Worker] [2025-02-26 22:27:52,755: INFO/MainProcess] mingle: all alone
+[Celery-Worker] [2025-02-26 22:27:52,771: INFO/MainProcess] celery@ailyin-mn1.linkedin.biz ready.
+[Celery-Worker] 
+[Celery-Worker] worker: Hitting Ctrl+C again will terminate all running tasks!
+[Celery-Worker] 
+[Celery-Worker] worker: Warm shutdown (MainProcess)

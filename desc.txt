@@ -1,0 +1,8 @@
+
+Write a Django app that uses Claude to send me a regular email with news updates.
+
+There is an admin UI that allows me to sign up and verify my email address with a code. Once I've done this, I can create multiple sections like world news, tech news etc. for the newsletter I will receive. For each section, I will mention the sources I want to be used, and a prompt explaining how to prioritize and summarize the news from these sources.
+
+There is also a selector allowing to choose time slots when the emails should be sent out every day. It allows to select multiple slots with 30 min precision. There's also a button to send out an email right now.
+
+Make sure that the model has access to all the URLs in the list. The flow should be agentic: the model reads the suggested pages and then it can ask for additional URLs to be read. 

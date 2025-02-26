@@ -1,0 +1,157 @@
+[Django] Watching for file changes with StatReloader
+[Django] [26/Feb/2025 22:43:16] "GET /dashboard/ HTTP/1.1" 200 23506
+[Django] [26/Feb/2025 22:43:18] "GET /send-now/ HTTP/1.1" 302 0
+[Django] [26/Feb/2025 22:43:18] "GET /dashboard/ HTTP/1.1" 200 23810
+[Django] [26/Feb/2025 22:46:45] "GET /dashboard/ HTTP/1.1" 200 23506
+[Django] [26/Feb/2025 22:46:54] "GET /dashboard/ HTTP/1.1" 200 23506
+[Django] [26/Feb/2025 22:46:55] "GET /send-now/ HTTP/1.1" 302 0
+[Django] [26/Feb/2025 22:46:55] "GET /dashboard/ HTTP/1.1" 200 23810
+[Django] /Users/ailyin/code/news2/news_updater/news_app/models.py changed, reloading.
+[Django] Performing system checks...
+[Django] 
+[Django] System check identified no issues (0 silenced).
+[Django] February 26, 2025 - 22:43:12
+[Django] Django version 4.2.10, using settings 'news_updater.settings'
+[Django] Starting development server at http://127.0.0.1:8000/
+[Django] Quit the server with CONTROL-C.
+[Django] 
+[Django] Watching for file changes with StatReloader
+[Django] /Users/ailyin/code/news2/news_updater/news_app/models.py changed, reloading.
+[Django] Performing system checks...
+[Django] 
+[Django] System check identified no issues (0 silenced).
+[Django] February 26, 2025 - 22:53:19
+[Django] Django version 4.2.10, using settings 'news_updater.settings'
+[Django] Starting development server at http://127.0.0.1:8000/
+[Django] Quit the server with CONTROL-C.
+[Django] 
+[Django] Watching for file changes with StatReloader
+[Django] [26/Feb/2025 23:00:18] "GET /dashboard/ HTTP/1.1" 200 23506
+[Django] Not Found: /favicon.ico
+[Django] [26/Feb/2025 23:00:18,803] - Broken pipe from ('127.0.0.1', 59927)
+[Django] [26/Feb/2025 23:00:20] "GET /send-now/ HTTP/1.1" 302 0
+[Django] [26/Feb/2025 23:00:20] "GET /dashboard/ HTTP/1.1" 200 23810
+[Django] /Users/ailyin/code/news2/news_updater/news_app/models.py changed, reloading.
+[Django] Performing system checks...
+[Django] 
+[Django] System check identified no issues (0 silenced).
+[Django] February 26, 2025 - 22:59:00
+[Django] Django version 4.2.10, using settings 'news_updater.settings'
+[Django] Starting development server at http://127.0.0.1:8000/
+[Django] Quit the server with CONTROL-C.
+[Django] 
+[Django] Watching for file changes with StatReloader
+[Django] [26/Feb/2025 23:03:31] "GET /dashboard/ HTTP/1.1" 200 23506
+[Django] [26/Feb/2025 23:03:33] "GET /send-now/ HTTP/1.1" 302 0
+[Django] [26/Feb/2025 23:03:33] "GET /dashboard/ HTTP/1.1" 200 23810
+[Django] [26/Feb/2025 23:03:42] "GET /add-news-section/ HTTP/1.1" 200 4095
+[Django] [26/Feb/2025 23:05:55] "POST /add-news-section/ HTTP/1.1" 302 0
+[Django] [26/Feb/2025 23:05:56] "GET /dashboard/ HTTP/1.1" 200 24781
+[Django] Not Found: /favicon.ico
+[Django] [26/Feb/2025 23:05:56] "GET /favicon.ico HTTP/1.1" 404 4317
+[Django] [26/Feb/2025 23:05:56,106] - Broken pipe from ('127.0.0.1', 60290)
+[Django] [26/Feb/2025 23:05:58] "GET /dashboard/ HTTP/1.1" 200 24498
+[Django] [26/Feb/2025 23:06:01] "GET /add-news-section/ HTTP/1.1" 200 4095
+[Django] [26/Feb/2025 23:06:28] "POST /add-news-section/ HTTP/1.1" 302 0
+[Django] [26/Feb/2025 23:06:29] "GET /dashboard/ HTTP/1.1" 200 25776
+[Django] Not Found: /favicon.ico
+[Django] [26/Feb/2025 23:06:29,082] - Broken pipe from ('127.0.0.1', 60292)
+[Django] /Users/ailyin/code/news2/news_updater/news_app/tasks.py changed, reloading.
+[Django] Performing system checks...
+[Django] 
+[Django] System check identified no issues (0 silenced).
+[Django] February 26, 2025 - 23:02:50
+[Django] Django version 4.2.10, using settings 'news_updater.settings'
+[Django] Starting development server at http://127.0.0.1:8000/
+[Django] Quit the server with CONTROL-C.
+[Django] 
+[Django] Watching for file changes with StatReloader
+[Django] [26/Feb/2025 23:08:43] "GET /dashboard/ HTTP/1.1" 200 25493
+[Django] Not Found: /favicon.ico
+[Django] [26/Feb/2025 23:08:43,405] - Broken pipe from ('127.0.0.1', 60410)
+[Django] [26/Feb/2025 23:08:45] "GET /send-now/ HTTP/1.1" 302 0
+[Django] [26/Feb/2025 23:08:45] "GET /dashboard/ HTTP/1.1" 200 25797
+[Django] Not Found: /favicon.ico
+[Django] [26/Feb/2025 23:08:45] "GET /favicon.ico HTTP/1.1" 404 4317
+[Django] /Users/ailyin/code/news2/news_updater/news_app/tasks.py changed, reloading.
+[Django] Performing system checks...
+[Django] 
+[Django] System check identified no issues (0 silenced).
+[Django] February 26, 2025 - 23:06:43
+[Django] Django version 4.2.10, using settings 'news_updater.settings'
+[Django] Starting development server at http://127.0.0.1:8000/
+[Django] Quit the server with CONTROL-C.
+[Django] 
+[Django] Watching for file changes with StatReloader
+[Django] [26/Feb/2025 23:11:50] "GET /dashboard/ HTTP/1.1" 200 25493
+[Django] Not Found: /favicon.ico
+[Django] [26/Feb/2025 23:11:50] "GET /favicon.ico HTTP/1.1" 404 4317
+[Django] [26/Feb/2025 23:11:50,673] - Broken pipe from ('127.0.0.1', 60521)
+[Django] [26/Feb/2025 23:11:51] "GET /dashboard/ HTTP/1.1" 200 25493
+[Django] Not Found: /favicon.ico
+[Django] [26/Feb/2025 23:11:51] "GET /favicon.ico HTTP/1.1" 404 4317
+[Django] [26/Feb/2025 23:12:45] "GET /send-now/ HTTP/1.1" 302 0
+[Django] [26/Feb/2025 23:12:45] "GET /dashboard/ HTTP/1.1" 200 25797
+[Django] Not Found: /favicon.ico
+[Django] [26/Feb/2025 23:12:45] "GET /favicon.ico HTTP/1.1" 404 4317
+[Django] [26/Feb/2025 23:12:45,147] - Broken pipe from ('127.0.0.1', 60525)
+[Django] /Users/ailyin/code/news2/news_updater/news_app/tasks.py changed, reloading.
+[Django] Performing system checks...
+[Django] 
+[Django] System check identified no issues (0 silenced).
+[Django] February 26, 2025 - 23:11:34
+[Django] Django version 4.2.10, using settings 'news_updater.settings'
+[Django] Starting development server at http://127.0.0.1:8000/
+[Django] Quit the server with CONTROL-C.
+[Django] 
+[Django] Watching for file changes with StatReloader
+[Django] [26/Feb/2025 23:18:12] "GET /send-now/ HTTP/1.1" 302 0
+[Django] [26/Feb/2025 23:18:12] "GET /dashboard/ HTTP/1.1" 200 25797
+[Django] Not Found: /favicon.ico
+[Django] [26/Feb/2025 23:18:12] "GET /favicon.ico HTTP/1.1" 404 4317
+[Django] [26/Feb/2025 23:18:12,605] - Broken pipe from ('127.0.0.1', 60741)
+[Django] /Users/ailyin/code/news2/news_updater/news_app/tasks.py changed, reloading.
+[Django] Performing system checks...
+[Django] 
+[Django] System check identified no issues (0 silenced).
+[Django] February 26, 2025 - 23:14:48
+[Django] Django version 4.2.10, using settings 'news_updater.settings'
+[Django] Starting development server at http://127.0.0.1:8000/
+[Django] Quit the server with CONTROL-C.
+[Django] 
+[Django] Watching for file changes with StatReloader
+[Django] /Users/ailyin/code/news2/news_updater/news_app/tasks.py changed, reloading.
+[Django] Performing system checks...
+[Django] 
+[Django] System check identified no issues (0 silenced).
+[Django] February 26, 2025 - 23:19:28
+[Django] Django version 4.2.10, using settings 'news_updater.settings'
+[Django] Starting development server at http://127.0.0.1:8000/
+[Django] Quit the server with CONTROL-C.
+[Django] 
+[Django] Watching for file changes with StatReloader
+[Django] /Users/ailyin/code/news2/news_updater/news_app/tasks.py changed, reloading.
+[Django] Performing system checks...
+[Django] 
+[Django] System check identified no issues (0 silenced).
+[Django] February 26, 2025 - 23:24:34
+[Django] Django version 4.2.10, using settings 'news_updater.settings'
+[Django] Starting development server at http://127.0.0.1:8000/
+[Django] Quit the server with CONTROL-C.
+[Django] 
+[Django] Watching for file changes with StatReloader
+[Django] [26/Feb/2025 23:25:18] "GET /dashboard/ HTTP/1.1" 200 25493
+[Django] Not Found: /favicon.ico
+[Django] [26/Feb/2025 23:25:18,213] - Broken pipe from ('127.0.0.1', 61443)
+[Django] /Users/ailyin/code/news2/news_updater/news_app/tasks.py changed, reloading.
+[Django] Performing system checks...
+[Django] 
+[Django] System check identified no issues (0 silenced).
+[Django] February 26, 2025 - 23:24:40
+[Django] Django version 4.2.10, using settings 'news_updater.settings'
+[Django] Starting development server at http://127.0.0.1:8000/
+[Django] Quit the server with CONTROL-C.
+[Django] 
+[Django] Watching for file changes with StatReloader
+[Django] Exception in thread django-main-thread:
+[Django] Traceback (most recen
