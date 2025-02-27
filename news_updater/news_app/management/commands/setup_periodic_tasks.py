@@ -6,9 +6,9 @@ class Command(BaseCommand):
     help = 'Setup periodic tasks for checking scheduled emails'
 
     def handle(self, *args, **kwargs):
-        # Create interval schedule (every 30 minutes)
+        # Create interval schedule (every 5 minutes)
         schedule, created = IntervalSchedule.objects.get_or_create(
-            every=30,
+            every=5,
             period=IntervalSchedule.MINUTES,
         )
         

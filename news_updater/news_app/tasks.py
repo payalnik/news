@@ -765,22 +765,35 @@ def fetch_url_content(url, use_browser=None):
 def check_scheduled_emails():
     """Check if any emails need to be sent based on time slots"""
     from .models import TimeSlot
+    from datetime import timedelta
     
     # Get current UTC time
-    current_time = timezone.now().time()
+    current_time = timezone.now()
+    current_time_only = current_time.time()
     
-    # Round to nearest 30 minutes
-    current_hour = current_time.hour
-    current_minute = 30 if current_time.minute >= 30 else 0
+    # Calculate time 5 minutes ago
+    five_mins_ago = current_time - timedelta(minutes=5)
+    five_mins_ago_time = five_mins_ago.time()
     
     # Log the current time for debugging
-    logger.info(f"Checking for scheduled emails at UTC time {current_hour:02d}:{current_minute:02d}")
+    logger.info(f"Checking for scheduled emails at UTC time {current_time_only.strftime('%H:%M')}")
+    logger.info(f"Looking for time slots between {five_mins_ago_time.strftime('%H:%M')} and {current_time_only.strftime('%H:%M')}")
     
-    # Find all time slots matching the current time
-    time_slots = TimeSlot.objects.filter(
-        time__hour=current_hour,
-        time__minute=current_minute
-    )
+    # Find time slots in the last 5 minutes
+    # Handle the case where the time range crosses midnight
+    if five_mins_ago_time > current_time_only:
+        # Time range crosses midnight
+        time_slots = TimeSlot.objects.filter(
+            time__gte=five_mins_ago_time
+        ) | TimeSlot.objects.filter(
+            time__lte=current_time_only
+        )
+    else:
+        # Normal time range within the same day
+        time_slots = TimeSlot.objects.filter(
+            time__gte=five_mins_ago_time,
+            time__lte=current_time_only
+        )
     
     # Log the number of matching time slots
     logger.info(f"Found {time_slots.count()} matching time slots")
