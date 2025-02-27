@@ -54,13 +54,70 @@ def _fetch_with_browser(url):
     
     driver = None
     try:
-        # Try different approaches to initialize Chrome/Chromium
+        # Try to find Chromium binary first
+        logger.info("Trying to use Chromium by default...")
+        import subprocess
+        import shutil
+        import os
+        
+        # Common Chromium binary names and paths
+        chromium_commands = [
+            "chromium",
+            "chromium-browser"
+        ]
+        
+        chromium_paths = [
+            "/usr/bin/chromium",
+            "/usr/bin/chromium-browser",
+            "/usr/lib/chromium/chromium",
+            "/usr/lib/chromium-browser/chromium-browser",
+            "/snap/bin/chromium",
+            "/Applications/Chromium.app/Contents/MacOS/Chromium"  # macOS
+        ]
+        
+        # First try to get the actual binary path from the command
+        chromium_binary = None
+        for cmd in chromium_commands:
+            if shutil.which(cmd):
+                try:
+                    # Try to get the actual binary path
+                    result = subprocess.run(["which", cmd], capture_output=True, text=True)
+                    if result.returncode == 0:
+                        binary_path = result.stdout.strip()
+                        logger.info(f"Found Chromium command at: {binary_path}")
+                        
+                        # Check if it's a symlink and resolve it
+                        if os.path.islink(binary_path):
+                            real_path = os.path.realpath(binary_path)
+                            logger.info(f"Resolved symlink to: {real_path}")
+                            chromium_binary = real_path
+                        else:
+                            chromium_binary = binary_path
+                        break
+                except Exception as e:
+                    logger.warning(f"Error resolving Chromium command: {str(e)}")
+        
+        # If command resolution failed, try direct paths
+        if not chromium_binary:
+            for path in chromium_paths:
+                if os.path.exists(path) and os.access(path, os.X_OK):
+                    chromium_binary = path
+                    logger.info(f"Found Chromium binary at: {path}")
+                    break
+        
+        # Try to use Chromium first
         try:
-            # Try to use system ChromeDriver without auto-installation
-            logger.info("Trying to use system ChromeDriver...")
-            driver = webdriver.Chrome(options=chrome_options)
+            if chromium_binary:
+                logger.info(f"Using Chromium binary: {chromium_binary}")
+                chrome_options.binary_location = chromium_binary
+                driver = webdriver.Chrome(options=chrome_options)
+            else:
+                logger.warning("Chromium binary not found, falling back to Chrome...")
+                # Try to use system ChromeDriver without auto-installation
+                logger.info("Trying to use system ChromeDriver...")
+                driver = webdriver.Chrome(options=chrome_options)
         except Exception as e:
-            logger.warning(f"Failed to use system ChromeDriver: {str(e)}")
+            logger.warning(f"Failed to initialize browser: {str(e)}")
             logger.info("Trying with chromedriver_autoinstaller...")
             
             try:
@@ -75,7 +132,6 @@ def _fetch_with_browser(url):
                     from selenium.webdriver.chrome.service import Service
                     
                     # Try to find system chromedriver
-                    import shutil
                     chromedriver_path = shutil.which("chromedriver")
                     
                     if chromedriver_path:
@@ -83,75 +139,12 @@ def _fetch_with_browser(url):
                         service = Service(executable_path=chromedriver_path)
                         driver = webdriver.Chrome(service=service, options=chrome_options)
                     else:
-                        raise Exception("No system chromedriver found")
+                        # Last resort: try without specifying binary location
+                        logger.info("Trying one more approach without specifying binary location...")
+                        chrome_options.binary_location = ""
+                        driver = webdriver.Chrome(options=chrome_options)
                 except Exception as e:
-                    logger.warning(f"Failed with system chromedriver: {str(e)}")
-                    logger.info("Trying to use Chromium instead...")
-            
-            # Try to find Chromium binary
-            import subprocess
-            import shutil
-            
-            # Common Chromium binary names and paths
-            chromium_commands = [
-                "chromium",
-                "chromium-browser"
-            ]
-            
-            chromium_paths = [
-                "/usr/bin/chromium",
-                "/usr/bin/chromium-browser",
-                "/usr/lib/chromium/chromium",
-                "/usr/lib/chromium-browser/chromium-browser",
-                "/snap/bin/chromium",
-                "/Applications/Chromium.app/Contents/MacOS/Chromium"  # macOS
-            ]
-            
-            # First try to get the actual binary path from the command
-            chromium_binary = None
-            for cmd in chromium_commands:
-                if shutil.which(cmd):
-                    try:
-                        # Try to get the actual binary path
-                        result = subprocess.run(["which", cmd], capture_output=True, text=True)
-                        if result.returncode == 0:
-                            binary_path = result.stdout.strip()
-                            logger.info(f"Found Chromium command at: {binary_path}")
-                            
-                            # Check if it's a symlink and resolve it
-                            import os
-                            if os.path.islink(binary_path):
-                                real_path = os.path.realpath(binary_path)
-                                logger.info(f"Resolved symlink to: {real_path}")
-                                chromium_binary = real_path
-                            else:
-                                chromium_binary = binary_path
-                            break
-                    except Exception as e:
-                        logger.warning(f"Error resolving Chromium command: {str(e)}")
-            
-            # If command resolution failed, try direct paths
-            if not chromium_binary:
-                for path in chromium_paths:
-                    if os.path.exists(path) and os.access(path, os.X_OK):
-                        chromium_binary = path
-                        logger.info(f"Found Chromium binary at: {path}")
-                        break
-            
-            if chromium_binary:
-                logger.info(f"Using Chromium binary: {chromium_binary}")
-                chrome_options.binary_location = chromium_binary
-                try:
-                    driver = webdriver.Chrome(options=chrome_options)
-                except Exception as e:
-                    logger.error(f"Failed to initialize Chromium: {str(e)}")
-                    
-                    # Last resort: try to use Chrome/Chromium without specifying binary location
-                    logger.info("Trying one more approach without specifying binary location...")
-                    chrome_options.binary_location = ""
-                    driver = webdriver.Chrome(options=chrome_options)
-            else:
-                raise Exception("Neither Chrome nor Chromium found in PATH")
+                    raise Exception(f"Failed to initialize any browser: {str(e)}")
         
         # Set page load timeout
         driver.set_page_load_timeout(30)
