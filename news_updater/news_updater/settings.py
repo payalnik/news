@@ -121,8 +121,8 @@ EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD')
 EMAIL_USE_TLS = os.getenv('EMAIL_USE_TLS', 'True') == 'True'
 DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', EMAIL_HOST_USER)
 
-# Anthropic API key
-ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY')
+# Google API key for Gemini
+GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
 
 # Celery settings
 CELERY_BROKER_URL = 'redis://localhost:6379/0'

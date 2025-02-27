@@ -1,5 +1,5 @@
 Django==4.2.10
-anthropic==0.47.2
+google-generativeai==0.3.2
 celery==5.3.6
 redis==5.0.1
 requests==2.31.0

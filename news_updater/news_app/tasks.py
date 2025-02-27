@@ -3,7 +3,7 @@ from django.core.mail import send_mail, EmailMultiAlternatives
 from django.utils.html import format_html
 from django.conf import settings
 from django.utils import timezone
-import anthropic
+import google.generativeai as genai
 import requests
 from bs4 import BeautifulSoup
 import logging
@@ -11,6 +11,7 @@ import random
 import time
 import json
 import re
+from .browser_fetch import _fetch_with_browser
 
 logger = logging.getLogger(__name__)
 
@@ -27,8 +28,8 @@ def send_news_update(user_profile_id):
             logger.warning(f"No news sections found for user {user.username}")
             return
         
-        # Initialize Anthropic client
-        client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+        # Initialize Google Gemini client
+        genai.configure(api_key=settings.GOOGLE_API_KEY)
         
         # Prepare email content
         plain_text_content = f"Hello {user.username},\n\nHere's your news update for {timezone.now().strftime('%Y-%m-%d')}:\n\n"
@@ -71,7 +72,7 @@ def send_news_update(user_profile_id):
                     logger.error(f"Error fetching content from {url}: {str(e)}")
                     sources_content.append(f"Error fetching content from {url}")
             
-            # Generate summary using Claude
+            # Generate summary using Gemini
             joined_sources = "\n\n".join(sources_content)
             prompt = f"""
             I need to create a news summary for the section "{section.name}" based on the following sources:
@@ -83,6 +84,15 @@ def send_news_update(user_profile_id):
             
             Please provide a concise, well-organized summary of the most important news from these sources.
             
+            CRITICAL ANTI-HALLUCINATION INSTRUCTIONS:
+            1. ONLY include information that is EXPLICITLY stated in the provided sources
+            2. DO NOT add any details, context, or background information that is not directly from the sources
+            3. If the sources are insufficient to create a meaningful summary, state this clearly instead of inventing content
+            4. Each fact MUST be directly attributable to at least one of the provided sources
+            5. If sources contradict each other, note the contradiction and present both perspectives
+            6. Use phrases like "according to [source]" to clearly attribute information
+            7. If you're unsure about any information, indicate this uncertainty rather than making assumptions
+            
             IMPORTANT: Return your response as a JSON array with each news item having the following structure:
             {{
               "headline": "Headline of the news item",
@@ -92,14 +102,15 @@ def send_news_update(user_profile_id):
                   "url": "URL of the source article",
                   "title": "Title of the source article"
                 }}
-              ]
+              ],
+              "confidence": "high/medium/low" // Add your confidence level that this information is accurate and directly from sources
             }}
             
             For example:
             [
               {{
                 "headline": "Major Tech Company Announces New Product",
-                "details": "The company revealed their latest innovation yesterday, featuring improved performance and new capabilities that industry analysts say could disrupt the market.",
+                "details": "According to Tech Giant's press release, the company revealed their latest innovation yesterday, featuring improved performance and new capabilities. Industry analysts quoted in the Market Implications article say this could disrupt the market.",
                 "sources": [
                   {{
                     "url": "https://example.com/tech-news/article1",
@@ -109,42 +120,47 @@ def send_news_update(user_profile_id):
                     "url": "https://another-site.com/business/tech-announcement",
                     "title": "Market Implications of the New Product Launch"
                   }}
-                ]
+                ],
+                "confidence": "high"
               }},
               {{
                 "headline": "Another Important News Item",
-                "details": "Details about this news item...",
+                "details": "Details about this news item, with clear attribution to sources...",
                 "sources": [
                   {{
                     "url": "https://example.com/news/article2",
                     "title": "Article Title"
                   }}
-                ]
+                ],
+                "confidence": "medium"
               }}
             ]
             
             Make sure to:
             1. Include 3-5 of the most important news items from the sources unless stated otherwise
-            2. Provide detailed but concise information in the details field
-            3. Link to the original sources when possible
+            2. Provide detailed but concise information in the details field WITH CLEAR ATTRIBUTION
+            3. Link to the original sources for EVERY claim made
             4. Format the JSON correctly so it can be parsed
+            5. Include a confidence rating for each news item
+            6. If you cannot extract enough information from the sources, return a JSON array with a single item explaining the issue
+            
+            VERIFICATION STEP: Before finalizing your response, review each news item and verify:
+            - Every fact is directly from the sources
+            - No information has been added, assumed, or inferred beyond what's explicitly stated
+            - All claims are properly attributed
+            - The confidence rating accurately reflects the quality and clarity of the source information
             
             If you need more information from any specific source, please indicate that outside the JSON structure.
             """
             
             try:
-                response = client.messages.create(
-                    model="claude-3-7-sonnet-20250219",
-                    max_tokens=8000,
-                    temperature=0.3,
-                    messages=[
-                        {"role": "user", "content": prompt}
-                    ]
-                )
+                # Use Gemini Flash 2.0 model
+                model = genai.GenerativeModel('gemini-2.0-flash')
+                response = model.generate_content(prompt)
                 
-                summary_text = response.content[0].text
+                summary_text = response.text
                 
-                # Check if Claude needs more information
+                # Check if Gemini needs more information
                 if "I need more information" in summary_text or "need additional content" in summary_text:
                     # Handle the request for more information
                     # For now, we'll just include this in the email
@@ -160,10 +176,10 @@ def send_news_update(user_profile_id):
                         valid_json = True
                     except json.JSONDecodeError:
                         valid_json = False
-                        logger.error(f"Failed to parse JSON from Claude response: {summary_text}")
+                        logger.error(f"Failed to parse JSON from Gemini response: {summary_text}")
                 else:
                     valid_json = False
-                    logger.error(f"No JSON array found in Claude response: {summary_text}")
+                    logger.error(f"No JSON array found in Gemini response: {summary_text}")
                 
                 # Add section to plain text email
                 plain_text_content += f"\n\n## {section.name}\n\n"
@@ -177,9 +193,12 @@ def send_news_update(user_profile_id):
                         headline = item.get("headline", "")
                         details = item.get("details", "")
                         sources = item.get("sources", [])
+                        confidence = item.get("confidence", "")
                         
                         plain_text_content += f"* {headline}\n"
                         plain_text_content += f"  {details}\n"
+                        if confidence:
+                            plain_text_content += f"  Confidence: {confidence}\n"
                         if sources:
                             plain_text_content += "  Sources: "
                             source_links = []
@@ -193,10 +212,20 @@ def send_news_update(user_profile_id):
                         headline = item.get("headline", "")
                         details = item.get("details", "")
                         sources = item.get("sources", [])
+                        confidence = item.get("confidence", "")
                         
                         html_content += "<li class='news-item'>"
                         html_content += f"<strong>{headline}</strong>"
                         html_content += f"<p>{details}</p>"
+                        
+                        if confidence:
+                            confidence_color = {
+                                "high": "#28a745",
+                                "medium": "#ffc107",
+                                "low": "#dc3545"
+                            }.get(confidence.lower(), "#6c757d")
+                            
+                            html_content += f"<div style='margin-top: 5px; font-size: 12px;'><span style='background-color: {confidence_color}; color: white; padding: 2px 6px; border-radius: 3px;'>Confidence: {confidence}</span></div>"
                         
                         if sources:
                             html_content += "<div class='item-sources'>Sources: "
@@ -313,7 +342,7 @@ def send_news_update(user_profile_id):
                     html_content += '</div>'
                 
             except Exception as e:
-                logger.error(f"Error generating summary with Claude: {str(e)}")
+                logger.error(f"Error generating summary with Gemini: {str(e)}")
                 error_message = f"Error generating summary: {str(e)}"
                 plain_text_content += f"\n\n## {section.name}\n\n{error_message}\n\n"
                 html_content += f"<h2>{section.name}</h2><p>{error_message}</p>"
@@ -352,7 +381,7 @@ def send_news_update(user_profile_id):
 
 def fetch_url_content(url, use_browser=None):
     """
-    Fetch and extract text content from a URL with advanced browser simulation
+    Fetch and extract text content from a URL with adaptive browser simulation
     
     Args:
         url: The URL to fetch
@@ -368,21 +397,21 @@ def fetch_url_content(url, use_browser=None):
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Edge/121.0.0.0 Safari/537.36'
     ]
     
-    # Determine if we should use a headless browser
-    if use_browser is None:
-        # Auto-detect based on domain
-        js_heavy_domains = ['nytimes.com', 'wsj.com', 'bloomberg.com', 'ft.com', 
-                           'washingtonpost.com', 'economist.com', 'newyorker.com']
-        use_browser = any(domain in url for domain in js_heavy_domains)
-    
-    # Try with headless browser if needed
-    if use_browser:
+    # If browser use is explicitly requested, use it
+    if use_browser is True:
         try:
             return _fetch_with_browser(url)
         except Exception as e:
             logger.error(f"Browser-based fetching failed for {url}: {str(e)}")
             logger.info(f"Falling back to requests-based fetching for {url}")
             # Fall back to requests-based fetching
+    
+    # If browser use is explicitly forbidden, don't use it
+    if use_browser is False:
+        # Skip browser and go straight to requests
+        pass
+    
+    # Otherwise, try requests first and fall back to browser if needed
     
     # More realistic browser headers
     chosen_ua = random.choice(user_agents)
@@ -422,7 +451,7 @@ def fetch_url_content(url, use_browser=None):
         'consent': 'true',
     }
     
-    max_retries = 3
+    max_retries = 2  # Reduced from 3 to 2 to try browser sooner
     retry_delay = 2  # seconds
     
     for attempt in range(max_retries):
@@ -453,16 +482,17 @@ def fetch_url_content(url, use_browser=None):
             
             # Check if we got a valid response
             if not response.text or len(response.text) < 100:
-                raise ValueError("Response too short, likely blocked or invalid")
+                logger.warning(f"Response too short from {url}, likely blocked or invalid")
+                # Try with headless browser immediately if content is too short
+                logger.info(f"Response too short, trying with headless browser for {url}")
+                return _fetch_with_browser(url)
             
             # Check for common anti-bot patterns
             if "captcha" in response.text.lower() or "cloudflare" in response.text.lower():
                 logger.warning(f"Possible anti-bot protection detected on {url}")
-                if attempt == max_retries - 1 and not use_browser:
-                    logger.info(f"Trying with headless browser as last resort for {url}")
-                    return _fetch_with_browser(url)
-                else:
-                    raise ValueError("Anti-bot protection detected")
+                # Try with headless browser immediately if anti-bot protection is detected
+                logger.info(f"Anti-bot protection detected, trying with headless browser for {url}")
+                return _fetch_with_browser(url)
             
             soup = BeautifulSoup(response.text, 'html.parser')
             
@@ -472,17 +502,41 @@ def fetch_url_content(url, use_browser=None):
             
             # Try to find the main content area if possible
             main_content = None
-            content_selectors = [
-                'main', 'article', '#content', '.content', '#main', '.main', '.article', '.post',
-                '.story', '.entry', '[role="main"]', '.story-body', '.article-body', '.entry-content',
-                '.post-content', '.article-content', '.story-content'
-            ]
             
-            for tag in content_selectors:
-                content = soup.select(tag)
-                if content:
-                    main_content = content[0]
-                    break
+            # Site-specific selectors for problematic sites
+            site_specific_selectors = {
+                'mv-voice.com': ['.story', '.story-body', '.article-body', '.article-text'],
+                'sfchronicle.com': ['.article-body', '.article', '.story-body', '.paywall-article'],
+                'mercurynews.com': ['.article-body', '.entry-content', '.article', '.story-body']
+            }
+            
+            # Check if we're on a site with specific selectors
+            domain = url.split('//')[1].split('/')[0]
+            if any(site in domain for site in site_specific_selectors.keys()):
+                for site, selectors in site_specific_selectors.items():
+                    if site in domain:
+                        for selector in selectors:
+                            content = soup.select(selector)
+                            if content:
+                                main_content = content[0]
+                                logger.info(f"Found main content using site-specific selector {selector} for {site}")
+                                break
+                        if main_content:
+                            break
+            
+            # If no site-specific selector worked, try generic selectors
+            if not main_content:
+                content_selectors = [
+                    'main', 'article', '#content', '.content', '#main', '.main', '.article', '.post',
+                    '.story', '.entry', '[role="main"]', '.story-body', '.article-body', '.entry-content',
+                    '.post-content', '.article-content', '.story-content'
+                ]
+                
+                for tag in content_selectors:
+                    content = soup.select(tag)
+                    if content:
+                        main_content = content[0]
+                        break
             
             # If we found a main content area, use that, otherwise use the whole page
             if main_content:
@@ -501,155 +555,52 @@ def fetch_url_content(url, use_browser=None):
             # Check if we got enough content
             if len(text) < 500:
                 logger.warning(f"Content from {url} seems too short ({len(text)} chars), might be incomplete")
-                if attempt == max_retries - 1 and not use_browser:
-                    logger.info(f"Content too short, trying with headless browser for {url}")
-                    return _fetch_with_browser(url)
+                # Try with headless browser immediately if content is too short
+                logger.info(f"Content too short, trying with headless browser for {url}")
+                return _fetch_with_browser(url)
             
-            # Limit text length to avoid overwhelming Claude
+            # Limit text length to avoid overwhelming Gemini
             return text[:15000] + "..." if len(text) > 15000 else text
             
         except requests.exceptions.HTTPError as e:
             logger.error(f"HTTP error fetching {url}: {str(e)}")
             if e.response.status_code in [403, 429]:
                 logger.warning(f"Access denied (status {e.response.status_code}), might be rate limited or blocked")
-                # On last retry with 403/429, try browser method if not already using it
-                if attempt == max_retries - 1 and not use_browser:
-                    logger.info(f"Trying with headless browser after receiving {e.response.status_code} for {url}")
-                    return _fetch_with_browser(url)
+                # Try with headless browser immediately if we get a 403 or 429
+                logger.info(f"Access denied, trying with headless browser for {url}")
+                return _fetch_with_browser(url)
             if attempt < max_retries - 1:
                 # Add jitter to backoff
                 jitter = random.uniform(0.8, 1.2)
                 time.sleep(retry_delay * (attempt + 1) * jitter)  # Exponential backoff with jitter
             else:
-                raise
+                # On last retry, try browser method
+                logger.info(f"Multiple HTTP errors, trying with headless browser for {url}")
+                return _fetch_with_browser(url)
         except requests.exceptions.ConnectionError:
             logger.error(f"Connection error fetching {url}")
             if attempt < max_retries - 1:
                 time.sleep(retry_delay * (attempt + 1) * random.uniform(0.8, 1.2))
             else:
-                raise
+                # On last retry, try browser method
+                logger.info(f"Connection errors, trying with headless browser for {url}")
+                return _fetch_with_browser(url)
         except requests.exceptions.Timeout:
             logger.error(f"Timeout fetching {url}")
             if attempt < max_retries - 1:
                 time.sleep(retry_delay * (attempt + 1) * random.uniform(0.8, 1.2))
             else:
-                raise
+                # On last retry, try browser method
+                logger.info(f"Timeout errors, trying with headless browser for {url}")
+                return _fetch_with_browser(url)
         except Exception as e:
             logger.error(f"Error fetching {url}: {str(e)}")
             if attempt < max_retries - 1:
                 time.sleep(retry_delay * (attempt + 1) * random.uniform(0.8, 1.2))
             else:
-                # On last retry with any error, try browser method if not already using it
-                if not use_browser:
-                    logger.info(f"Trying with headless browser as last resort for {url}")
-                    return _fetch_with_browser(url)
-                raise
-
-def _fetch_with_browser(url):
-    """Fetch URL content using a headless browser for JavaScript-heavy sites"""
-    try:
-        import selenium
-        from selenium import webdriver
-        from selenium.webdriver.chrome.options import Options
-        from selenium.webdriver.chrome.service import Service
-        from selenium.webdriver.common.by import By
-        from selenium.webdriver.support.ui import WebDriverWait
-        from selenium.webdriver.support import expected_conditions as EC
-        import chromedriver_autoinstaller
-    except ImportError:
-        logger.error("Selenium not installed. Install with: pip install selenium chromedriver-autoinstaller")
-        raise ImportError("Required packages not installed: selenium, chromedriver-autoinstaller")
-    
-    logger.info(f"Fetching {url} with headless browser")
-    
-    # Auto-install chromedriver
-    chromedriver_autoinstaller.install()
-    
-    # Set up Chrome options
-    chrome_options = Options()
-    chrome_options.add_argument("--headless")
-    chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--disable-dev-shm-usage")
-    chrome_options.add_argument("--disable-gpu")
-    chrome_options.add_argument("--window-size=1920,1080")
-    
-    # Add realistic browser fingerprint
-    chrome_options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36")
-    chrome_options.add_argument("--accept-lang=en-US,en;q=0.9")
-    chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-    
-    # Disable images for faster loading
-    chrome_prefs = {
-        "profile.default_content_settings": {"images": 2},
-        "profile.managed_default_content_settings": {"images": 2}
-    }
-    chrome_options.add_experimental_option("prefs", chrome_prefs)
-    
-    driver = None
-    try:
-        driver = webdriver.Chrome(options=chrome_options)
-        
-        # Set page load timeout
-        driver.set_page_load_timeout(30)
-        
-        # Navigate to the URL
-        driver.get(url)
-        
-        # Wait for page to load
-        WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.TAG_NAME, "body"))
-        )
-        
-        # Scroll down to load lazy content
-        driver.execute_script("window.scrollTo(0, document.body.scrollHeight/2);")
-        time.sleep(2)  # Wait for content to load
-        driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-        time.sleep(2)  # Wait for content to load
-        
-        # Get the page source
-        page_source = driver.page_source
-        
-        # Parse with BeautifulSoup
-        soup = BeautifulSoup(page_source, 'html.parser')
-        
-        # Remove script, style, and other non-content elements
-        for element in soup(["script", "style", "header", "footer", "nav", "aside"]):
-            element.extract()
-        
-        # Try to find the main content area
-        main_content = None
-        content_selectors = [
-            'main', 'article', '#content', '.content', '#main', '.main', '.article', '.post',
-            '.story', '.entry', '[role="main"]', '.story-body', '.article-body', '.entry-content',
-            '.post-content', '.article-content', '.story-content'
-        ]
-        
-        for tag in content_selectors:
-            content = soup.select(tag)
-            if content:
-                main_content = content[0]
-                break
-        
-        # If we found a main content area, use that, otherwise use the whole page
-        if main_content:
-            text = main_content.get_text(separator='\n')
-        else:
-            # Try to exclude common non-content areas
-            for element in soup.select('.ad, .ads, .advertisement, .sidebar, .comments, .related, .recommended'):
-                element.extract()
-            text = soup.get_text(separator='\n')
-        
-        # Process the text
-        lines = (line.strip() for line in text.splitlines())
-        chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
-        text = '\n'.join(chunk for chunk in chunks if chunk)
-        
-        # Limit text length to avoid overwhelming Claude
-        return text[:15000] + "..." if len(text) > 15000 else text
-        
-    finally:
-        if driver:
-            driver.quit()
+                # On last retry, try browser method
+                logger.info(f"Multiple errors, trying with headless browser for {url}")
+                return _fetch_with_browser(url)
 
 @shared_task
 def check_scheduled_emails():
