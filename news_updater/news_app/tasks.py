@@ -766,10 +766,15 @@ def check_scheduled_emails():
     """Check if any emails need to be sent based on time slots"""
     from .models import TimeSlot
     
+    # Get current UTC time
     current_time = timezone.now().time()
+    
     # Round to nearest 30 minutes
     current_hour = current_time.hour
     current_minute = 30 if current_time.minute >= 30 else 0
+    
+    # Log the current time for debugging
+    logger.info(f"Checking for scheduled emails at UTC time {current_hour:02d}:{current_minute:02d}")
     
     # Find all time slots matching the current time
     time_slots = TimeSlot.objects.filter(
@@ -777,6 +782,10 @@ def check_scheduled_emails():
         time__minute=current_minute
     )
     
+    # Log the number of matching time slots
+    logger.info(f"Found {time_slots.count()} matching time slots")
+    
     # Send emails for each user with a matching time slot
     for slot in time_slots:
+        logger.info(f"Scheduling email for user {slot.user_profile.user.username} at {slot.time}")
         send_news_update.delay(slot.user_profile.id)

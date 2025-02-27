@@ -105,7 +105,19 @@ def dashboard(request):
     
     # Get all time slots for the user
     time_slots = TimeSlot.objects.filter(user_profile=user_profile)
-    selected_slots = [slot.time.strftime('%H:%M') for slot in time_slots]
+    
+    # Convert UTC times to local timezone
+    selected_slots = []
+    for slot in time_slots:
+        # Create a datetime object with today's date and the UTC time
+        utc_dt = timezone.datetime.combine(timezone.datetime.now().date(), slot.time)
+        utc_dt = timezone.make_aware(utc_dt, timezone.utc)
+        
+        # Convert to local time
+        local_dt = timezone.localtime(utc_dt)
+        
+        # Format as HH:MM
+        selected_slots.append(local_dt.strftime('%H:%M'))
     
     # Organize selected slots by time of day
     morning_slots = [slot for slot in selected_slots if 6 <= int(slot.split(':')[0]) < 12]
@@ -190,8 +202,23 @@ def update_time_slots(request):
             # Create new time slots
             for slot in selected_slots:
                 hour, minute = map(int, slot.split(':'))
-                time = datetime.strptime(f"{hour}:{minute}", "%H:%M").time()
-                TimeSlot.objects.create(user_profile=user_profile, time=time)
+                
+                # Convert local time to UTC
+                # First create a datetime object with today's date and the selected time
+                local_dt = timezone.datetime.now().replace(hour=hour, minute=minute, second=0, microsecond=0)
+                
+                # Make it timezone-aware using the user's timezone from the request
+                # Django automatically sets this based on settings.TIME_ZONE
+                local_dt = timezone.make_aware(local_dt)
+                
+                # Convert to UTC
+                utc_dt = local_dt.astimezone(timezone.utc)
+                
+                # Extract the time component
+                utc_time = utc_dt.time()
+                
+                # Create the time slot with the UTC time
+                TimeSlot.objects.create(user_profile=user_profile, time=utc_time)
             
             messages.success(request, 'Time slots updated successfully!')
     
