@@ -1,6 +1,10 @@
 # News Updater
 
-A Django application that uses Claude AI to send regular email news updates.
+A Django application that uses Google Gemini AI to send regular email news updates.
+
+## Project Structure
+
+The Django project is located in the `news_updater` directory. All Django commands should be run from within this directory.
 
 ## Setup Instructions
 
@@ -16,7 +20,7 @@ A Django application that uses Claude AI to send regular email news updates.
    ```
 4. Configure environment variables:
    - Edit the `.env` file with your settings
-   - Make sure to set your Anthropic API key and email settings
+   - Make sure to set your Google API key and email settings
 
 5. Run migrations:
    ```
@@ -24,30 +28,39 @@ A Django application that uses Claude AI to send regular email news updates.
    python manage.py migrate
    ```
 
-7. Create a superuser:
+6. Create a superuser:
    ```
    python manage.py createsuperuser
    ```
 
-8. Set up periodic tasks:
+7. Set up periodic tasks:
    ```
    python manage.py setup_periodic_tasks
    ```
 
-9. Run the development server:
+8. Run the development server:
    ```
    python manage.py runserver
    ```
 
-10. In separate terminal windows, run Celery worker and beat:
-    ```
-    celery -A news_updater worker -l info
-    ```
-    
-    And in another terminal:
-    ```
-    celery -A news_updater beat -l info
-    ```
+9. In separate terminal windows, run Celery worker and beat:
+   ```
+   cd news_updater
+   celery -A news_updater worker -l info
+   ```
+   
+   And in another terminal:
+   ```
+   cd news_updater
+   celery -A news_updater beat -l info
+   ```
+
+## Quick Start
+
+For convenience, you can use the provided startup scripts:
+
+- `run_news_updater.sh` - Starts all services using tmux
+- `run_news_updater_simple.sh` - Starts all services using screen or background processes
 
 ## Features
 
