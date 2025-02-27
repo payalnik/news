@@ -16,10 +16,10 @@ def _fetch_with_browser(url):
         from selenium.webdriver.support.ui import WebDriverWait
         from selenium.webdriver.support import expected_conditions as EC
         from selenium.common.exceptions import TimeoutException, ElementClickInterceptedException
-        import chromedriver_autoinstaller
+        # Do not use chromedriver_autoinstaller as it's causing version conflicts
     except ImportError:
-        logger.error("Selenium not installed. Install with: pip install selenium chromedriver-autoinstaller")
-        raise ImportError("Required packages not installed: selenium, chromedriver-autoinstaller")
+        logger.error("Selenium not installed. Install with: pip install selenium")
+        raise ImportError("Required packages not installed: selenium")
     
     logger.info(f"Fetching {url} with headless browser")
     
@@ -30,6 +30,11 @@ def _fetch_with_browser(url):
     import uuid
     import time
     import subprocess
+    import platform
+    
+    # Add detailed logging about the environment
+    logger.info(f"Platform: {platform.platform()}")
+    logger.info(f"Python version: {platform.python_version()}")
     
     # Kill any existing Chrome/Chromium processes before starting a new one
     logger.info("Cleaning up any existing browser processes...")
@@ -40,6 +45,21 @@ def _fetch_with_browser(url):
         else:  # Unix/Linux/Mac
             subprocess.run(['pkill', '-f', 'chrome'], stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
             subprocess.run(['pkill', '-f', 'chromium'], stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+            # Also try to remove any lock files in /tmp
+            try:
+                for f in os.listdir('/tmp'):
+                    if 'chrome' in f.lower() or 'chromium' in f.lower():
+                        try:
+                            full_path = os.path.join('/tmp', f)
+                            if os.path.isdir(full_path):
+                                shutil.rmtree(full_path, ignore_errors=True)
+                            else:
+                                os.remove(full_path)
+                            logger.info(f"Removed Chrome/Chromium temporary file: {full_path}")
+                        except Exception as e:
+                            logger.warning(f"Failed to remove temporary file {f}: {str(e)}")
+            except Exception as e:
+                logger.warning(f"Failed to clean up /tmp directory: {str(e)}")
     except Exception as e:
         logger.warning(f"Failed to kill existing browser processes: {str(e)}")
     
@@ -50,8 +70,10 @@ def _fetch_with_browser(url):
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--window-size=1920,1080")
-    # Explicitly disable user data directory
+    # Explicitly disable user data directory and use incognito
     chrome_options.add_argument("--incognito")
+    chrome_options.add_argument("--disable-extensions")
+    chrome_options.add_argument("--disable-plugins")
     
     # Add realistic browser fingerprint
     chrome_options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36")
@@ -119,68 +141,106 @@ def _fetch_with_browser(url):
                     break
         
         # Try to use Chromium first
+        # Try a completely different approach using a direct WebDriver instance
         try:
-            if chromium_binary:
-                logger.info(f"Using Chromium binary: {chromium_binary}")
-                chrome_options.binary_location = chromium_binary
-                driver = webdriver.Chrome(options=chrome_options)
+            # First, try to use Playwright instead of Selenium
+            try:
+                logger.info("Trying to use Playwright instead of Selenium...")
+                try:
+                    from playwright.sync_api import sync_playwright
+                    
+                    with sync_playwright() as p:
+                        # Try to launch Chromium browser
+                        browser = p.chromium.launch(headless=True)
+                        page = browser.new_page()
+                        page.goto(url)
+                        
+                        # Wait for the page to load
+                        page.wait_for_load_state("networkidle")
+                        
+                        # Get the page content
+                        content = page.content()
+                        
+                        # Parse with BeautifulSoup
+                        soup = BeautifulSoup(content, 'html.parser')
+                        
+                        # Remove script, style, and other non-content elements
+                        for element in soup(["script", "style", "header", "footer", "nav", "aside"]):
+                            element.extract()
+                        
+                        # Process the text
+                        text = soup.get_text(separator='\n')
+                        lines = (line.strip() for line in text.splitlines())
+                        chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
+                        text = '\n'.join(chunk for chunk in chunks if chunk)
+                        
+                        # Close the browser
+                        browser.close()
+                        
+                        # Return the text
+                        return text[:15000] + "..." if len(text) > 15000 else text
+                except ImportError:
+                    logger.warning("Playwright not installed, falling back to Selenium")
+            except Exception as e:
+                logger.warning(f"Failed to use Playwright: {str(e)}")
+            
+            # If Playwright failed, try Selenium with a custom approach
+            logger.info("Trying custom Selenium approach...")
+            
+            # Try to use a specific version of ChromeDriver that matches Chrome 2.67
+            from selenium.webdriver.chrome.service import Service
+            
+            # Try to find a compatible chromedriver
+            chromedriver_path = None
+            
+            # Check if we have a compatible chromedriver in the project directory
+            compat_driver_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'chromedriver')
+            if os.path.exists(compat_driver_path) and os.access(compat_driver_path, os.X_OK):
+                chromedriver_path = compat_driver_path
+                logger.info(f"Found compatible chromedriver in project directory: {chromedriver_path}")
+            
+            # If we found a compatible chromedriver, use it
+            if chromedriver_path:
+                service = Service(executable_path=chromedriver_path)
+                driver = webdriver.Chrome(service=service, options=chrome_options)
             else:
-                logger.warning("Chromium binary not found, falling back to Chrome...")
-                # Try to use system ChromeDriver without auto-installation
-                logger.info("Trying to use system ChromeDriver...")
+                # Try with system chromedriver
+                logger.info("Trying with system chromedriver...")
                 driver = webdriver.Chrome(options=chrome_options)
         except Exception as e:
-            logger.warning(f"Failed to initialize browser: {str(e)}")
-            logger.info("Trying with chromedriver_autoinstaller...")
+            logger.error(f"All browser initialization attempts failed: {str(e)}")
             
+            # Try one last approach: use requests + BeautifulSoup without a browser
+            logger.info("Trying to fetch content with requests instead of a browser...")
             try:
-                # Auto-install chromedriver as a fallback
-                chromedriver_autoinstaller.install()
-                driver = webdriver.Chrome(options=chrome_options)
-            except Exception as e:
-                logger.warning(f"Failed with chromedriver_autoinstaller: {str(e)}")
-                logger.info("Trying with specific ChromeDriver version...")
+                import requests
                 
-                try:
-                    from selenium.webdriver.chrome.service import Service
-                    
-                    # Try to find system chromedriver
-                    chromedriver_path = shutil.which("chromedriver")
-                    
-                    if chromedriver_path:
-                        logger.info(f"Found system chromedriver at: {chromedriver_path}")
-                        service = Service(executable_path=chromedriver_path)
-                        driver = webdriver.Chrome(service=service, options=chrome_options)
-                    else:
-                        # Try without specifying binary location
-                        logger.info("Trying without specifying binary location...")
-                        chrome_options.binary_location = ""
-                        try:
-                            driver = webdriver.Chrome(options=chrome_options)
-                        except Exception as e:
-                            logger.warning(f"Failed without binary location: {str(e)}")
-                            
-                            # Last resort: try without user data directory
-                            logger.info("Final attempt: trying without user data directory...")
-                            new_options = Options()
-                            new_options.add_argument("--headless")
-                            new_options.add_argument("--no-sandbox")
-                            new_options.add_argument("--disable-dev-shm-usage")
-                            new_options.add_argument("--disable-gpu")
-                            new_options.add_argument("--window-size=1920,1080")
-                            # No user-data-dir argument
-                            
-                            # Add realistic browser fingerprint
-                            new_options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36")
-                            new_options.add_argument("--accept-lang=en-US,en;q=0.9")
-                            new_options.add_argument("--disable-blink-features=AutomationControlled")
-                            
-                            # Disable images for faster loading
-                            new_options.add_experimental_option("prefs", chrome_prefs)
-                            
-                            driver = webdriver.Chrome(options=new_options)
-                except Exception as e:
-                    raise Exception(f"Failed to initialize any browser: {str(e)}")
+                headers = {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
+                    'Accept-Language': 'en-US,en;q=0.9',
+                }
+                
+                response = requests.get(url, headers=headers, timeout=30)
+                response.raise_for_status()
+                
+                # Parse with BeautifulSoup
+                soup = BeautifulSoup(response.text, 'html.parser')
+                
+                # Remove script, style, and other non-content elements
+                for element in soup(["script", "style", "header", "footer", "nav", "aside"]):
+                    element.extract()
+                
+                # Process the text
+                text = soup.get_text(separator='\n')
+                lines = (line.strip() for line in text.splitlines())
+                chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
+                text = '\n'.join(chunk for chunk in chunks if chunk)
+                
+                # Return the text
+                return text[:15000] + "..." if len(text) > 15000 else text
+            except Exception as req_error:
+                logger.error(f"Failed to fetch with requests: {str(req_error)}")
+                raise Exception(f"All content fetching methods failed: {str(e)}")
         
         # Set page load timeout
         driver.set_page_load_timeout(30)
