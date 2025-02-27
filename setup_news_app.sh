@@ -9,6 +9,13 @@ apt-get update
 # Install required packages
 apt-get install -y python3 python3-pip python3-venv nginx redis-server supervisor git
 
+# Install Google Chrome (required for web scraping)
+echo "Installing Google Chrome..."
+wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add -
+echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list
+apt-get update
+apt-get install -y google-chrome-stable
+
 # Create directory for the application
 mkdir -p /var/www/news
 cd /var/www/news
@@ -27,7 +34,7 @@ pip install gunicorn
 # Create .env file
 cat > .env << EOL
 # Django settings
-SECRET_KEY=your_django_secret_key_here
+SECRET_KEY=your_django_secret_key_heresuo
 DEBUG=False
 
 # Email settings
