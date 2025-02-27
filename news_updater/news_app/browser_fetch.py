@@ -23,22 +23,35 @@ def _fetch_with_browser(url):
     
     logger.info(f"Fetching {url} with headless browser")
     
-    # Create a unique temporary directory for user data
+    # Import necessary modules
     import tempfile
     import os
+    import shutil
+    import uuid
+    import time
+    import subprocess
     
-    # Create a unique temporary directory for Chrome/Chromium user data
-    temp_dir = tempfile.mkdtemp(prefix="chrome_user_data_")
-    logger.info(f"Created temporary user data directory: {temp_dir}")
+    # Kill any existing Chrome/Chromium processes before starting a new one
+    logger.info("Cleaning up any existing browser processes...")
+    try:
+        if os.name == 'nt':  # Windows
+            subprocess.run(['taskkill', '/F', '/IM', 'chrome.exe'], stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+            subprocess.run(['taskkill', '/F', '/IM', 'chromium.exe'], stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+        else:  # Unix/Linux/Mac
+            subprocess.run(['pkill', '-f', 'chrome'], stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+            subprocess.run(['pkill', '-f', 'chromium'], stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+    except Exception as e:
+        logger.warning(f"Failed to kill existing browser processes: {str(e)}")
     
-    # Set up browser options
+    # Set up browser options - DO NOT use a user data directory by default
     chrome_options = Options()
     chrome_options.add_argument("--headless")
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--window-size=1920,1080")
-    chrome_options.add_argument(f"--user-data-dir={temp_dir}")
+    # Explicitly disable user data directory
+    chrome_options.add_argument("--incognito")
     
     # Add realistic browser fingerprint
     chrome_options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36")
@@ -139,10 +152,33 @@ def _fetch_with_browser(url):
                         service = Service(executable_path=chromedriver_path)
                         driver = webdriver.Chrome(service=service, options=chrome_options)
                     else:
-                        # Last resort: try without specifying binary location
-                        logger.info("Trying one more approach without specifying binary location...")
+                        # Try without specifying binary location
+                        logger.info("Trying without specifying binary location...")
                         chrome_options.binary_location = ""
-                        driver = webdriver.Chrome(options=chrome_options)
+                        try:
+                            driver = webdriver.Chrome(options=chrome_options)
+                        except Exception as e:
+                            logger.warning(f"Failed without binary location: {str(e)}")
+                            
+                            # Last resort: try without user data directory
+                            logger.info("Final attempt: trying without user data directory...")
+                            new_options = Options()
+                            new_options.add_argument("--headless")
+                            new_options.add_argument("--no-sandbox")
+                            new_options.add_argument("--disable-dev-shm-usage")
+                            new_options.add_argument("--disable-gpu")
+                            new_options.add_argument("--window-size=1920,1080")
+                            # No user-data-dir argument
+                            
+                            # Add realistic browser fingerprint
+                            new_options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36")
+                            new_options.add_argument("--accept-lang=en-US,en;q=0.9")
+                            new_options.add_argument("--disable-blink-features=AutomationControlled")
+                            
+                            # Disable images for faster loading
+                            new_options.add_experimental_option("prefs", chrome_prefs)
+                            
+                            driver = webdriver.Chrome(options=new_options)
                 except Exception as e:
                     raise Exception(f"Failed to initialize any browser: {str(e)}")
         
@@ -293,5 +329,68 @@ def _fetch_with_browser(url):
         return text[:15000] + "..." if len(text) > 15000 else text
         
     finally:
+        # Clean up resources
         if driver:
-            driver.quit()
+            try:
+                # Set a timeout for quitting the driver
+                import threading
+                
+                def force_quit():
+                    logger.warning("Driver quit timeout reached, forcing process termination")
+                    # Try to find and kill any orphaned Chrome/Chromium processes
+                    try:
+                        import psutil
+                        import signal
+                        
+                        # Look for Chrome/Chromium processes
+                        for proc in psutil.process_iter(['pid', 'name']):
+                            try:
+                                # Check if it's a Chrome/Chromium process
+                                if any(browser in proc.info['name'].lower() for browser in ['chrome', 'chromium']):
+                                    logger.info(f"Killing orphaned browser process: {proc.info['name']} (PID: {proc.info['pid']})")
+                                    os.kill(proc.info['pid'], signal.SIGTERM)
+                            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                                pass
+                    except ImportError:
+                        # If psutil is not available, try using subprocess
+                        try:
+                            import subprocess
+                            
+                            # Try to kill Chrome/Chromium processes
+                            if os.name == 'nt':  # Windows
+                                subprocess.run(['taskkill', '/F', '/IM', 'chrome.exe'], stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+                                subprocess.run(['taskkill', '/F', '/IM', 'chromium.exe'], stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+                            else:  # Unix/Linux/Mac
+                                subprocess.run(['pkill', '-f', 'chrome'], stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+                                subprocess.run(['pkill', '-f', 'chromium'], stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+                        except Exception as e:
+                            logger.warning(f"Failed to kill browser processes: {str(e)}")
+                
+                # Set a timeout for driver.quit()
+                quit_timeout = threading.Timer(10.0, force_quit)
+                quit_timeout.start()
+                
+                try:
+                    driver.quit()
+                finally:
+                    # Cancel the timeout if driver.quit() completed normally
+                    quit_timeout.cancel()
+                
+            except Exception as e:
+                logger.warning(f"Error quitting driver: {str(e)}")
+                
+                # Try to find and kill any orphaned Chrome/Chromium processes
+                try:
+                    import subprocess
+                    
+                    # Try to kill Chrome/Chromium processes
+                    if os.name == 'nt':  # Windows
+                        subprocess.run(['taskkill', '/F', '/IM', 'chrome.exe'], stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+                        subprocess.run(['taskkill', '/F', '/IM', 'chromium.exe'], stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+                    else:  # Unix/Linux/Mac
+                        subprocess.run(['pkill', '-f', 'chrome'], stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+                        subprocess.run(['pkill', '-f', 'chromium'], stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+                except Exception as e:
+                    logger.warning(f"Failed to kill browser processes: {str(e)}")
+        
+        # No temporary directory to clean up since we're using incognito mode
