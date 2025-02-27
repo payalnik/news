@@ -15,6 +15,86 @@ from .browser_fetch import _fetch_with_browser
 
 logger = logging.getLogger(__name__)
 
+def is_content_suitable_for_llm(text, url):
+    """
+    Check if the content is suitable for LLM processing.
+    
+    Args:
+        text: The extracted text content
+        url: The source URL (for logging)
+        
+    Returns:
+        bool: True if content appears suitable, False if it needs re-fetching
+    """
+    # Skip empty or very short content
+    if not text or len(text) < 200:
+        logger.warning(f"Content from {url} is too short ({len(text) if text else 0} chars)")
+        return False
+    
+    # Check for common indicators of problematic content
+    problematic_indicators = [
+        # HTML/JavaScript fragments that weren't properly cleaned
+        "<html", "<body", "<script", "<style", "function(", "var ", "const ", "let ", "document.getElementById",
+        # Indicators of cookie/paywall notices
+        "cookie policy", "accept cookies", "cookie settings", "privacy policy", "terms of service",
+        "subscribe now", "subscription required", "create an account", "sign in to continue",
+        # Indicators of anti-bot measures
+        "captcha", "robot", "automated access", "detection", "cloudflare",
+        # Indicators of error pages
+        "404 not found", "403 forbidden", "access denied", "page not available",
+        # Indicators of content not loading properly
+        "loading", "please wait", "enable javascript", "browser not supported"
+    ]
+    
+    # Count problematic indicators
+    indicator_count = 0
+    for indicator in problematic_indicators:
+        if indicator in text.lower():
+            indicator_count += 1
+            logger.debug(f"Found problematic indicator '{indicator}' in content from {url}")
+    
+    # If too many problematic indicators, consider content unsuitable
+    if indicator_count >= 3:
+        logger.warning(f"Content from {url} has {indicator_count} problematic indicators")
+        return False
+    
+    # Check for coherent paragraphs - news articles typically have several paragraphs
+    paragraphs = [p for p in text.split('\n') if p.strip()]
+    meaningful_paragraphs = [p for p in paragraphs if len(p.split()) > 10]  # Paragraphs with >10 words
+    
+    if len(meaningful_paragraphs) < 3:
+        logger.warning(f"Content from {url} has only {len(meaningful_paragraphs)} meaningful paragraphs")
+        return False
+    
+    # Check for excessive repetition, which often indicates scraping issues
+    words = text.lower().split()
+    if len(words) > 100:
+        # Get the 20 most common words (excluding very common words)
+        from collections import Counter
+        common_words = ["the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "of", "for", "with", "by"]
+        word_counts = Counter([w for w in words if w not in common_words and len(w) > 3])
+        most_common = word_counts.most_common(20)
+        
+        # If any word appears with very high frequency, it might indicate repetitive content
+        for word, count in most_common:
+            frequency = count / len(words)
+            if frequency > 0.05 and count > 10:  # Word appears in >5% of text and >10 times
+                logger.warning(f"Content from {url} has suspicious repetition of '{word}' ({count} times, {frequency:.1%})")
+                return False
+    
+    # Check for domain-specific issues
+    domain = url.split('//')[1].split('/')[0]
+    
+    # MV Voice and related sites often have issues with content extraction
+    if any(site in domain for site in ['mv-voice.com', 'paloaltoonline.com', 'almanacnews.com']):
+        # For these sites, check for specific content patterns
+        if "article" not in text.lower() and "story" not in text.lower():
+            logger.warning(f"Content from {domain} doesn't appear to contain article text")
+            return False
+    
+    # If we've passed all checks, the content seems suitable
+    return True
+
 @shared_task
 def send_news_update(user_profile_id):
     from .models import UserProfile, NewsSection
@@ -100,7 +180,7 @@ def send_news_update(user_profile_id):
               "sources": [
                 {{
                   "url": "URL of the source article",
-                  "title": "Title of the source article"
+                  "title": "Title of the source article (keep this short and clean, max 50 characters)"
                 }}
               ],
               "confidence": "high/medium/low" // Add your confidence level that this information is accurate and directly from sources
@@ -114,11 +194,11 @@ def send_news_update(user_profile_id):
                 "sources": [
                   {{
                     "url": "https://example.com/tech-news/article1",
-                    "title": "Tech Giant's New Release Stuns Industry"
+                    "title": "Tech Giant News"
                   }},
                   {{
                     "url": "https://another-site.com/business/tech-announcement",
-                    "title": "Market Implications of the New Product Launch"
+                    "title": "Business Insider"
                   }}
                 ],
                 "confidence": "high"
@@ -142,7 +222,8 @@ def send_news_update(user_profile_id):
             3. Link to the original sources for EVERY claim made
             4. Format the JSON correctly so it can be parsed
             5. Include a confidence rating for each news item
-            6. If you cannot extract enough information from the sources, return a JSON array with a single item explaining the issue
+            6. Keep source titles short and clean (use the publication name like "The New York Times", "Fox News", "CNN", etc.)
+            7. If you cannot extract enough information from the sources, return a JSON array with a single item explaining the issue
             
             VERIFICATION STEP: Before finalizing your response, review each news item and verify:
             - Every fact is directly from the sources
@@ -195,14 +276,47 @@ def send_news_update(user_profile_id):
                         sources = item.get("sources", [])
                         confidence = item.get("confidence", "")
                         
+                        # Clean up source titles
+                        cleaned_sources = []
+                        for source in sources:
+                            url = source.get("url", "")
+                            title = source.get("title", "Article")
+                            
+                            # Extract domain name for cleaner display
+                            domain = url.split("//")[-1].split("/")[0]
+                            
+                            # Clean up title - limit length and remove garbage text
+                            # For news sites that often have long titles with multiple headlines
+                            if len(title) > 60:  # If title is too long
+                                # Try to get a cleaner title
+                                if "New York Times" in title:
+                                    title = "The New York Times"
+                                elif "nytimes" in domain:
+                                    title = "The New York Times"
+                                elif "foxnews" in domain:
+                                    title = "Fox News"
+                                elif "cnn" in domain:
+                                    title = "CNN"
+                                elif "bbc" in domain:
+                                    title = "BBC"
+                                elif "washingtonpost" in domain:
+                                    title = "Washington Post"
+                                elif "wsj" in domain:
+                                    title = "Wall Street Journal"
+                                else:
+                                    # Just use the domain name if we can't identify the source
+                                    title = domain
+                            
+                            cleaned_sources.append({"url": url, "title": title})
+                        
                         plain_text_content += f"* {headline}\n"
                         plain_text_content += f"  {details}\n"
                         if confidence:
                             plain_text_content += f"  Confidence: {confidence}\n"
-                        if sources:
+                        if cleaned_sources:
                             plain_text_content += "  Sources: "
                             source_links = []
-                            for source in sources:
+                            for source in cleaned_sources:
                                 source_links.append(f"{source.get('title', 'Article')}: {source.get('url', '')}")
                             plain_text_content += ", ".join(source_links) + "\n\n"
                     
@@ -213,6 +327,39 @@ def send_news_update(user_profile_id):
                         details = item.get("details", "")
                         sources = item.get("sources", [])
                         confidence = item.get("confidence", "")
+                        
+                        # Clean up source titles
+                        cleaned_sources = []
+                        for source in sources:
+                            url = source.get("url", "")
+                            title = source.get("title", "Article")
+                            
+                            # Extract domain name for cleaner display
+                            domain = url.split("//")[-1].split("/")[0]
+                            
+                            # Clean up title - limit length and remove garbage text
+                            # For news sites that often have long titles with multiple headlines
+                            if len(title) > 60:  # If title is too long
+                                # Try to get a cleaner title
+                                if "New York Times" in title:
+                                    title = "The New York Times"
+                                elif "nytimes" in domain:
+                                    title = "The New York Times"
+                                elif "foxnews" in domain:
+                                    title = "Fox News"
+                                elif "cnn" in domain:
+                                    title = "CNN"
+                                elif "bbc" in domain:
+                                    title = "BBC"
+                                elif "washingtonpost" in domain:
+                                    title = "Washington Post"
+                                elif "wsj" in domain:
+                                    title = "Wall Street Journal"
+                                else:
+                                    # Just use the domain name if we can't identify the source
+                                    title = domain
+                            
+                            cleaned_sources.append({"url": url, "title": title})
                         
                         html_content += "<li class='news-item'>"
                         html_content += f"<strong>{headline}</strong>"
@@ -227,10 +374,10 @@ def send_news_update(user_profile_id):
                             
                             html_content += f"<div style='margin-top: 5px; font-size: 12px;'><span style='background-color: {confidence_color}; color: white; padding: 2px 6px; border-radius: 3px;'>Confidence: {confidence}</span></div>"
                         
-                        if sources:
+                        if cleaned_sources:
                             html_content += "<div class='item-sources'>Sources: "
                             source_links = []
-                            for source in sources:
+                            for source in cleaned_sources:
                                 url = source.get("url", "")
                                 title = source.get("title", "Article")
                                 source_links.append(f"<a href='{url}' target='_blank'>{title}</a>")
@@ -387,6 +534,13 @@ def fetch_url_content(url, use_browser=None):
         url: The URL to fetch
         use_browser: None (auto-detect), True (force browser), False (force requests)
     """
+    # Special handling for known problematic sites
+    domain = url.split('//')[1].split('/')[0]
+    problematic_sites = ['mv-voice.com', 'paloaltoonline.com', 'almanacnews.com']
+    
+    if any(site in domain for site in problematic_sites):
+        logger.info(f"Known problematic site detected: {domain}. Using browser fetch directly.")
+        return _fetch_with_browser(url)
     # Modern, up-to-date user agents
     user_agents = [
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
@@ -557,6 +711,11 @@ def fetch_url_content(url, use_browser=None):
                 logger.warning(f"Content from {url} seems too short ({len(text)} chars), might be incomplete")
                 # Try with headless browser immediately if content is too short
                 logger.info(f"Content too short, trying with headless browser for {url}")
+                return _fetch_with_browser(url)
+            
+            # Check if the content is suitable for LLM processing
+            if not is_content_suitable_for_llm(text, url):
+                logger.warning(f"Content from {url} doesn't appear to be suitable for LLM processing, trying browser fetch")
                 return _fetch_with_browser(url)
             
             # Limit text length to avoid overwhelming Gemini
