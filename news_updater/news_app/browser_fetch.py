@@ -26,7 +26,7 @@ def _fetch_with_browser(url):
     # Auto-install chromedriver
     chromedriver_autoinstaller.install()
     
-    # Set up Chrome options
+    # Set up browser options
     chrome_options = Options()
     chrome_options.add_argument("--headless")
     chrome_options.add_argument("--no-sandbox")
@@ -48,7 +48,36 @@ def _fetch_with_browser(url):
     
     driver = None
     try:
-        driver = webdriver.Chrome(options=chrome_options)
+        # Try to use Chrome or Chromium, whichever is available
+        try:
+            driver = webdriver.Chrome(options=chrome_options)
+        except Exception as e:
+            logger.warning(f"Failed to initialize Chrome: {str(e)}")
+            logger.info("Trying to use Chromium instead...")
+            
+            # Try to find Chromium binary
+            import shutil
+            chromium_paths = [
+                "chromium",
+                "chromium-browser",
+                "/usr/bin/chromium",
+                "/usr/bin/chromium-browser",
+                "/usr/lib/chromium/chromium",
+                "/usr/lib/chromium-browser/chromium-browser"
+            ]
+            
+            chromium_binary = None
+            for path in chromium_paths:
+                if shutil.which(path):
+                    chromium_binary = path
+                    break
+            
+            if chromium_binary:
+                logger.info(f"Found Chromium at: {chromium_binary}")
+                chrome_options.binary_location = chromium_binary
+                driver = webdriver.Chrome(options=chrome_options)
+            else:
+                raise Exception("Neither Chrome nor Chromium found in PATH")
         
         # Set page load timeout
         driver.set_page_load_timeout(30)

@@ -9,12 +9,25 @@ apt-get update
 # Install required packages
 apt-get install -y python3 python3-pip python3-venv nginx redis-server supervisor git
 
-# Install Google Chrome (required for web scraping)
-echo "Installing Google Chrome..."
-wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add -
-echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list
-apt-get update
-apt-get install -y google-chrome-stable
+# Install browser for web scraping
+echo "Which browser would you like to install for web scraping?"
+echo "1) Google Chrome"
+echo "2) Chromium (open-source version of Chrome)"
+read -p "Enter your choice (1 or 2, default: 1): " browser_choice
+
+if [[ "$browser_choice" == "2" ]]; then
+    echo "Installing Chromium..."
+    apt-get update
+    apt-get install -y chromium-browser || apt-get install -y chromium
+    echo "Chromium installed successfully!"
+else
+    echo "Installing Google Chrome..."
+    wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add -
+    echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list
+    apt-get update
+    apt-get install -y google-chrome-stable
+    echo "Google Chrome installed successfully!"
+fi
 
 # Create directory for the application
 mkdir -p /var/www/news
