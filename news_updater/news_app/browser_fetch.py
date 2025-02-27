@@ -23,8 +23,13 @@ def _fetch_with_browser(url):
     
     logger.info(f"Fetching {url} with headless browser")
     
-    # Auto-install chromedriver
-    chromedriver_autoinstaller.install()
+    # Create a unique temporary directory for user data
+    import tempfile
+    import os
+    
+    # Create a unique temporary directory for Chrome/Chromium user data
+    temp_dir = tempfile.mkdtemp(prefix="chrome_user_data_")
+    logger.info(f"Created temporary user data directory: {temp_dir}")
     
     # Set up browser options
     chrome_options = Options()
@@ -33,9 +38,10 @@ def _fetch_with_browser(url):
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--window-size=1920,1080")
+    chrome_options.add_argument(f"--user-data-dir={temp_dir}")
     
     # Add realistic browser fingerprint
-    chrome_options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36")
+    chrome_options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36")
     chrome_options.add_argument("--accept-lang=en-US,en;q=0.9")
     chrome_options.add_argument("--disable-blink-features=AutomationControlled")
     
@@ -48,12 +54,39 @@ def _fetch_with_browser(url):
     
     driver = None
     try:
-        # Try to use Chrome or Chromium, whichever is available
+        # Try different approaches to initialize Chrome/Chromium
         try:
+            # Try to use system ChromeDriver without auto-installation
+            logger.info("Trying to use system ChromeDriver...")
             driver = webdriver.Chrome(options=chrome_options)
         except Exception as e:
-            logger.warning(f"Failed to initialize Chrome: {str(e)}")
-            logger.info("Trying to use Chromium instead...")
+            logger.warning(f"Failed to use system ChromeDriver: {str(e)}")
+            logger.info("Trying with chromedriver_autoinstaller...")
+            
+            try:
+                # Auto-install chromedriver as a fallback
+                chromedriver_autoinstaller.install()
+                driver = webdriver.Chrome(options=chrome_options)
+            except Exception as e:
+                logger.warning(f"Failed with chromedriver_autoinstaller: {str(e)}")
+                logger.info("Trying with specific ChromeDriver version...")
+                
+                try:
+                    from selenium.webdriver.chrome.service import Service
+                    
+                    # Try to find system chromedriver
+                    import shutil
+                    chromedriver_path = shutil.which("chromedriver")
+                    
+                    if chromedriver_path:
+                        logger.info(f"Found system chromedriver at: {chromedriver_path}")
+                        service = Service(executable_path=chromedriver_path)
+                        driver = webdriver.Chrome(service=service, options=chrome_options)
+                    else:
+                        raise Exception("No system chromedriver found")
+                except Exception as e:
+                    logger.warning(f"Failed with system chromedriver: {str(e)}")
+                    logger.info("Trying to use Chromium instead...")
             
             # Try to find Chromium binary
             import subprocess
