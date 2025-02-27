@@ -26,7 +26,9 @@ wheels/
 *.pyc
 local_settings.py
 db.sqlite3
+news_updater/db.sqlite3
 db.sqlite3-journal
+news_updater/db.sqlite3-journal
 media
 
 # Environment
