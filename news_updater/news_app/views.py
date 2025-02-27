@@ -107,7 +107,18 @@ def dashboard(request):
     time_slots = TimeSlot.objects.filter(user_profile=user_profile)
     selected_slots = [slot.time.strftime('%H:%M') for slot in time_slots]
     
-    time_slot_form = TimeSlotForm(initial={'time_slots': selected_slots})
+    # Organize selected slots by time of day
+    morning_slots = [slot for slot in selected_slots if 6 <= int(slot.split(':')[0]) < 12]
+    afternoon_slots = [slot for slot in selected_slots if 12 <= int(slot.split(':')[0]) < 18]
+    evening_slots = [slot for slot in selected_slots if 18 <= int(slot.split(':')[0]) < 24]
+    night_slots = [slot for slot in selected_slots if 0 <= int(slot.split(':')[0]) < 6]
+    
+    time_slot_form = TimeSlotForm(initial={
+        'morning_slots': morning_slots,
+        'afternoon_slots': afternoon_slots,
+        'evening_slots': evening_slots,
+        'night_slots': night_slots
+    })
     
     return render(request, 'news_app/dashboard.html', {
         'news_sections': news_sections,
@@ -170,7 +181,8 @@ def update_time_slots(request):
     if request.method == 'POST':
         form = TimeSlotForm(request.POST)
         if form.is_valid():
-            selected_slots = form.cleaned_data['time_slots']
+            # Get all selected time slots from all time periods
+            selected_slots = form.get_all_selected_slots()
             
             # Delete existing time slots
             TimeSlot.objects.filter(user_profile=user_profile).delete()

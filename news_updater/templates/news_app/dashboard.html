@@ -57,15 +57,98 @@
                 <form method="post" action="{% url 'update_time_slots' %}">
                     {% csrf_token %}
                     
-                    <div class="time-slots-container mb-3">
-                        {% for choice in time_slot_form.time_slots %}
-                            <div class="form-check">
-                                {{ choice.tag }}
-                                <label class="form-check-label" for="{{ choice.id_for_label }}">
-                                    {{ choice.choice_label }}
-                                </label>
+                    <div class="accordion mb-3" id="timeSlotAccordion">
+                        <!-- Morning Time Slots -->
+                        <div class="accordion-item">
+                            <h2 class="accordion-header" id="morningHeading">
+                                <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#morningCollapse" aria-expanded="true" aria-controls="morningCollapse">
+                                    {{ time_slot_form.morning_slots.label }}
+                                </button>
+                            </h2>
+                            <div id="morningCollapse" class="accordion-collapse collapse show" aria-labelledby="morningHeading" data-bs-parent="#timeSlotAccordion">
+                                <div class="accordion-body">
+                                    <div class="time-slots-container">
+                                        {% for choice in time_slot_form.morning_slots %}
+                                            <div class="form-check">
+                                                {{ choice.tag }}
+                                                <label class="form-check-label" for="{{ choice.id_for_label }}">
+                                                    {{ choice.choice_label }}
+                                                </label>
+                                            </div>
+                                        {% endfor %}
+                                    </div>
+                                </div>
                             </div>
-                        {% endfor %}
+                        </div>
+                        
+                        <!-- Afternoon Time Slots -->
+                        <div class="accordion-item">
+                            <h2 class="accordion-header" id="afternoonHeading">
+                                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#afternoonCollapse" aria-expanded="false" aria-controls="afternoonCollapse">
+                                    {{ time_slot_form.afternoon_slots.label }}
+                                </button>
+                            </h2>
+                            <div id="afternoonCollapse" class="accordion-collapse collapse" aria-labelledby="afternoonHeading" data-bs-parent="#timeSlotAccordion">
+                                <div class="accordion-body">
+                                    <div class="time-slots-container">
+                                        {% for choice in time_slot_form.afternoon_slots %}
+                                            <div class="form-check">
+                                                {{ choice.tag }}
+                                                <label class="form-check-label" for="{{ choice.id_for_label }}">
+                                                    {{ choice.choice_label }}
+                                                </label>
+                                            </div>
+                                        {% endfor %}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Evening Time Slots -->
+                        <div class="accordion-item">
+                            <h2 class="accordion-header" id="eveningHeading">
+                                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#eveningCollapse" aria-expanded="false" aria-controls="eveningCollapse">
+                                    {{ time_slot_form.evening_slots.label }}
+                                </button>
+                            </h2>
+                            <div id="eveningCollapse" class="accordion-collapse collapse" aria-labelledby="eveningHeading" data-bs-parent="#timeSlotAccordion">
+                                <div class="accordion-body">
+                                    <div class="time-slots-container">
+                                        {% for choice in time_slot_form.evening_slots %}
+                                            <div class="form-check">
+                                                {{ choice.tag }}
+                                                <label class="form-check-label" for="{{ choice.id_for_label }}">
+                                                    {{ choice.choice_label }}
+                                                </label>
+                                            </div>
+                                        {% endfor %}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Night Time Slots -->
+                        <div class="accordion-item">
+                            <h2 class="accordion-header" id="nightHeading">
+                                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#nightCollapse" aria-expanded="false" aria-controls="nightCollapse">
+                                    {{ time_slot_form.night_slots.label }}
+                                </button>
+                            </h2>
+                            <div id="nightCollapse" class="accordion-collapse collapse" aria-labelledby="nightHeading" data-bs-parent="#timeSlotAccordion">
+                                <div class="accordion-body">
+                                    <div class="time-slots-container">
+                                        {% for choice in time_slot_form.night_slots %}
+                                            <div class="form-check">
+                                                {{ choice.tag }}
+                                                <label class="form-check-label" for="{{ choice.id_for_label }}">
+                                                    {{ choice.choice_label }}
+                                                </label>
+                                            </div>
+                                        {% endfor %}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                     
                     <div class="d-grid">
