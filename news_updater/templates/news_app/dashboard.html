@@ -53,6 +53,13 @@
             </div>
             <div class="card-body">
                 <p>Select the times when you want to receive your news updates:</p>
+                <p class="text-muted small" id="timezone-info">Times are displayed in your local timezone.</p>
+                <script>
+                    document.addEventListener('DOMContentLoaded', function() {
+                        const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+                        document.getElementById('timezone-info').textContent = `Times are displayed in your local timezone (${timezone}).`;
+                    });
+                </script>
                 
                 <form method="post" action="{% url 'update_time_slots' %}">
                     {% csrf_token %}

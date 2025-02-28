@@ -105,6 +105,32 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Detect client timezone and store it in a cookie
+        document.addEventListener('DOMContentLoaded', function() {
+            // Get timezone using Intl.DateTimeFormat().resolvedOptions().timeZone
+            const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+            
+            // Store timezone in a cookie that expires in 30 days
+            const expirationDate = new Date();
+            expirationDate.setDate(expirationDate.getDate() + 30);
+            document.cookie = `client_timezone=${timezone}; expires=${expirationDate.toUTCString()}; path=/; SameSite=Lax`;
+            
+            // If there's a form with time slots, add the timezone as a hidden input
+            const forms = document.querySelectorAll('form[action*="time_slots"]');
+            forms.forEach(form => {
+                // Check if the hidden input already exists
+                let hiddenInput = form.querySelector('input[name="client_timezone"]');
+                if (!hiddenInput) {
+                    hiddenInput = document.createElement('input');
+                    hiddenInput.type = 'hidden';
+                    hiddenInput.name = 'client_timezone';
+                    form.appendChild(hiddenInput);
+                }
+                hiddenInput.value = timezone;
+            });
+        });
+    </script>
     {% block extra_js %}{% endblock %}
 </body>
 </html>

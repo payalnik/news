@@ -786,7 +786,7 @@ def check_scheduled_emails():
     from datetime import timedelta
     
     # Get current UTC time
-    current_time = timezone.now()
+    current_time = timezone.now().astimezone(timezone.utc)
     current_time_only = current_time.time()
     
     # Calculate time 5 minutes ago

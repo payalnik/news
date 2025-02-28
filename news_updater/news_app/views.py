@@ -6,6 +6,7 @@ from django.core.mail import send_mail
 from django.conf import settings
 from django.utils import timezone
 from datetime import datetime
+import logging
 
 from .models import UserProfile, NewsSection, TimeSlot, VerificationCode
 from .forms import SignUpForm, VerificationForm, NewsSectionForm, TimeSlotForm
@@ -106,18 +107,37 @@ def dashboard(request):
     # Get all time slots for the user
     time_slots = TimeSlot.objects.filter(user_profile=user_profile)
     
-    # Convert UTC times to local timezone
+    # Get client timezone from cookie
+    client_timezone = request.COOKIES.get('client_timezone')
+    
+    # Default to server timezone if client timezone is not available
+    if not client_timezone:
+        client_timezone = settings.TIME_ZONE
+    
+    # Convert UTC times to client timezone
     selected_slots = []
     for slot in time_slots:
         # Create a datetime object with today's date and the UTC time
-        utc_dt = timezone.datetime.combine(timezone.datetime.now().date(), slot.time)
+        utc_date = timezone.now().astimezone(timezone.utc).date()
+        utc_dt = timezone.datetime.combine(utc_date, slot.time)
         utc_dt = timezone.make_aware(utc_dt, timezone.utc)
         
-        # Convert to local time
-        local_dt = timezone.localtime(utc_dt)
-        
-        # Format as HH:MM
-        selected_slots.append(local_dt.strftime('%H:%M'))
+        try:
+            # Convert to client timezone
+            import pytz
+            client_tz = pytz.timezone(client_timezone)
+            local_dt = utc_dt.astimezone(client_tz)
+            
+            # Format as HH:MM
+            selected_slots.append(local_dt.strftime('%H:%M'))
+        except Exception as e:
+            # If there's an error with the timezone, fall back to the server's timezone
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error converting timezone {client_timezone}: {str(e)}")
+            
+            # Fall back to server timezone
+            local_dt = timezone.localtime(utc_dt)
+            selected_slots.append(local_dt.strftime('%H:%M'))
     
     # Organize selected slots by time of day
     morning_slots = [slot for slot in selected_slots if 6 <= int(slot.split(':')[0]) < 12]
@@ -199,26 +219,53 @@ def update_time_slots(request):
             # Delete existing time slots
             TimeSlot.objects.filter(user_profile=user_profile).delete()
             
+            # Get client timezone from the form or cookie
+            client_timezone = request.POST.get('client_timezone')
+            if not client_timezone:
+                # Try to get from cookie
+                client_timezone = request.COOKIES.get('client_timezone')
+            
+            # Default to server timezone if client timezone is not available
+            if not client_timezone:
+                client_timezone = settings.TIME_ZONE
+                
             # Create new time slots
             for slot in selected_slots:
                 hour, minute = map(int, slot.split(':'))
                 
-                # Convert local time to UTC
-                # First create a datetime object with today's date and the selected time
-                local_dt = timezone.datetime.now().replace(hour=hour, minute=minute, second=0, microsecond=0)
+                # Create a datetime object with today's date and the selected time
+                naive_dt = datetime.now().replace(hour=hour, minute=minute, second=0, microsecond=0)
                 
-                # Make it timezone-aware using the user's timezone from the request
-                # Django automatically sets this based on settings.TIME_ZONE
-                local_dt = timezone.make_aware(local_dt)
-                
-                # Convert to UTC
-                utc_dt = local_dt.astimezone(timezone.utc)
-                
-                # Extract the time component
-                utc_time = utc_dt.time()
-                
-                # Create the time slot with the UTC time
-                TimeSlot.objects.create(user_profile=user_profile, time=utc_time)
+                try:
+                    # Make it timezone-aware using the client's timezone
+                    import pytz
+                    client_tz = pytz.timezone(client_timezone)
+                    local_dt = client_tz.localize(naive_dt)
+                    
+                    # Convert to UTC
+                    utc_dt = local_dt.astimezone(timezone.utc)
+                    
+                    # Extract the time component
+                    utc_time = utc_dt.time()
+                    
+                    # Create the time slot with the UTC time
+                    TimeSlot.objects.create(user_profile=user_profile, time=utc_time)
+                    
+                    # Log for debugging
+                    logger = logging.getLogger(__name__)
+                    logger.info(f"Created time slot: {hour}:{minute} in {client_timezone} -> {utc_time} UTC")
+                except Exception as e:
+                    # If there's an error with the timezone, fall back to the server's timezone
+                    logger = logging.getLogger(__name__)
+                    logger.error(f"Error converting timezone {client_timezone}: {str(e)}")
+                    
+                    # Fall back to server timezone
+                    local_dt = timezone.localtime(timezone.now()).replace(hour=hour, minute=minute, second=0, microsecond=0)
+                    if timezone.is_naive(local_dt):
+                        local_dt = timezone.make_aware(local_dt)
+                    utc_dt = local_dt.astimezone(timezone.utc)
+                    utc_time = utc_dt.time()
+                    TimeSlot.objects.create(user_profile=user_profile, time=utc_time)
             
             messages.success(request, 'Time slots updated successfully!')
     
