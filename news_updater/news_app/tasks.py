@@ -116,12 +116,13 @@ def send_news_update(user_profile_id):
             return
         
         # Initialize Google Gemini client if available
-        if GEMINI_AVAILABLE:
+        gemini_available = GEMINI_AVAILABLE  # Create a local copy of the global variable
+        if gemini_available:
             try:
                 genai.configure(api_key=settings.GOOGLE_API_KEY)
             except Exception as e:
                 logger.error(f"Error configuring Gemini: {str(e)}")
-                GEMINI_AVAILABLE = False
+                gemini_available = False  # Only modify the local copy
         
         # Prepare email content
         plain_text_content = f"Hello {user.username},\n\nHere's your news update for {timezone.now().strftime('%Y-%m-%d')}:\n\n"
@@ -247,7 +248,7 @@ def send_news_update(user_profile_id):
             """
             
             try:
-                if not GEMINI_AVAILABLE:
+                if not gemini_available:
                     # If Gemini is not available, provide a simple fallback
                     logger.warning(f"Gemini is not available. Using fallback for section {section.name}")
                     summary_text = f"Unable to generate summary for {section.name} because the Gemini API is not available. Please check the source links below for the original content."
