@@ -3,7 +3,14 @@ from django.core.mail import send_mail, EmailMultiAlternatives
 from django.utils.html import format_html
 from django.conf import settings
 from django.utils import timezone
-import google.generativeai as genai
+# Try to import google.generativeai, but don't fail if it's not available
+try:
+    import google.generativeai as genai
+    GEMINI_AVAILABLE = True
+except ImportError:
+    GEMINI_AVAILABLE = False
+    import logging
+    logging.warning("google.generativeai module not available. Some features will be disabled.")
 import requests
 from bs4 import BeautifulSoup
 import logging
@@ -108,8 +115,13 @@ def send_news_update(user_profile_id):
             logger.warning(f"No news sections found for user {user.username}")
             return
         
-        # Initialize Google Gemini client
-        genai.configure(api_key=settings.GOOGLE_API_KEY)
+        # Initialize Google Gemini client if available
+        if GEMINI_AVAILABLE:
+            try:
+                genai.configure(api_key=settings.GOOGLE_API_KEY)
+            except Exception as e:
+                logger.error(f"Error configuring Gemini: {str(e)}")
+                GEMINI_AVAILABLE = False
         
         # Prepare email content
         plain_text_content = f"Hello {user.username},\n\nHere's your news update for {timezone.now().strftime('%Y-%m-%d')}:\n\n"
@@ -235,17 +247,23 @@ def send_news_update(user_profile_id):
             """
             
             try:
-                # Use Gemini Flash 2.0 model
-                model = genai.GenerativeModel('gemini-2.0-flash')
-                response = model.generate_content(prompt)
+                if not GEMINI_AVAILABLE:
+                    # If Gemini is not available, provide a simple fallback
+                    logger.warning(f"Gemini is not available. Using fallback for section {section.name}")
+                    summary_text = f"Unable to generate summary for {section.name} because the Gemini API is not available. Please check the source links below for the original content."
+                    valid_json = False
+                else:
+                    # Use Gemini Flash 2.0 model
+                    model = genai.GenerativeModel('gemini-2.0-flash')
+                    response = model.generate_content(prompt)
+                    
+                    summary_text = response.text
                 
-                summary_text = response.text
-                
-                # Check if Gemini needs more information
-                if "I need more information" in summary_text or "need additional content" in summary_text:
-                    # Handle the request for more information
-                    # For now, we'll just include this in the email
-                    pass
+                    # Check if Gemini needs more information
+                    if "I need more information" in summary_text or "need additional content" in summary_text:
+                        # Handle the request for more information
+                        # For now, we'll just include this in the email
+                        pass
                 
                 # Try to parse the JSON response
                 # Extract JSON array from the response if it's not a clean JSON

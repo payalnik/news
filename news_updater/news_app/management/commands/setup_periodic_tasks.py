@@ -30,15 +30,23 @@ class Command(BaseCommand):
             created = False
             self.stdout.write(self.style.WARNING(f'Found {schedules.count()} duplicate schedules, using the first one'))
         
-        # Create periodic task
-        task, created = PeriodicTask.objects.get_or_create(
-            name='Check scheduled emails',
-            task='news_app.tasks.check_scheduled_emails',
-            interval=schedule,
-            kwargs=json.dumps({}),
-        )
-        
-        if created:
+        # Get or update periodic task
+        try:
+            task = PeriodicTask.objects.get(name='Check scheduled emails')
+            # Update the task
+            task.task = 'news_app.tasks.check_scheduled_emails'
+            task.interval = schedule
+            task.kwargs = json.dumps({})
+            task.enabled = True  # Make sure it's enabled
+            task.save()
+            self.stdout.write(self.style.SUCCESS('Successfully updated periodic task'))
+        except PeriodicTask.DoesNotExist:
+            # Create a new task if it doesn't exist
+            task = PeriodicTask.objects.create(
+                name='Check scheduled emails',
+                task='news_app.tasks.check_scheduled_emails',
+                interval=schedule,
+                kwargs=json.dumps({}),
+                enabled=True,
+            )
             self.stdout.write(self.style.SUCCESS('Successfully created periodic task'))
-        else:
-            self.stdout.write(self.style.SUCCESS('Periodic task already exists'))
