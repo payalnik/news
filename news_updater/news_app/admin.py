@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import UserProfile, NewsSection, TimeSlot, VerificationCode
+from .models import UserProfile, NewsSection, TimeSlot, VerificationCode, NewsItem
 
 @admin.register(UserProfile)
 class UserProfileAdmin(admin.ModelAdmin):
@@ -23,3 +23,10 @@ class VerificationCodeAdmin(admin.ModelAdmin):
     list_display = ('user_profile', 'code', 'created_at', 'is_used')
     list_filter = ('is_used', 'created_at')
     search_fields = ('user_profile__user__username', 'code')
+
+@admin.register(NewsItem)
+class NewsItemAdmin(admin.ModelAdmin):
+    list_display = ('headline', 'news_section', 'user_profile', 'confidence', 'created_at')
+    list_filter = ('confidence', 'created_at', 'news_section')
+    search_fields = ('headline', 'details', 'user_profile__user__username')
+    date_hierarchy = 'created_at'

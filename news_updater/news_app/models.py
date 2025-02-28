@@ -2,6 +2,7 @@ from django.db import models
 from django.contrib.auth.models import User
 import random
 import string
+import json
 
 class UserProfile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
@@ -52,3 +53,51 @@ class VerificationCode(models.Model):
     @classmethod
     def generate_code(cls):
         return ''.join(random.choices(string.digits, k=6))
+
+class NewsItem(models.Model):
+    user_profile = models.ForeignKey(UserProfile, on_delete=models.CASCADE, related_name='news_items')
+    news_section = models.ForeignKey(NewsSection, on_delete=models.CASCADE, related_name='news_items')
+    headline = models.CharField(max_length=255)
+    details = models.TextField()
+    sources = models.TextField()  # Stored as JSON
+    confidence = models.CharField(max_length=10, default='medium')
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    def __str__(self):
+        return f"{self.headline} - {self.created_at.strftime('%Y-%m-%d')}"
+    
+    def get_sources_list(self):
+        try:
+            return json.loads(self.sources)
+        except:
+            return []
+    
+    def set_sources_list(self, sources_list):
+        self.sources = json.dumps(sources_list)
+    
+    def is_similar_to(self, headline, details, threshold=0.7):
+        """
+        Check if this news item is similar to the provided headline and details.
+        Returns True if they are similar, False otherwise.
+        
+        The threshold parameter controls how similar the items need to be (0.0 to 1.0).
+        """
+        # Simple similarity check based on headline
+        if self.headline.lower() == headline.lower():
+            return True
+        
+        # More sophisticated similarity check could be implemented here
+        # For now, we'll use a simple word overlap approach
+        headline_words = set(self.headline.lower().split())
+        new_headline_words = set(headline.lower().split())
+        
+        # Calculate Jaccard similarity (intersection over union)
+        if not headline_words or not new_headline_words:
+            return False
+            
+        intersection = len(headline_words.intersection(new_headline_words))
+        union = len(headline_words.union(new_headline_words))
+        
+        similarity = intersection / union
+        
+        return similarity >= threshold

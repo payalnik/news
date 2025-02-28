@@ -104,7 +104,7 @@ def is_content_suitable_for_llm(text, url):
 
 @shared_task
 def send_news_update(user_profile_id):
-    from .models import UserProfile, NewsSection
+    from .models import UserProfile, NewsSection, NewsItem
     
     try:
         user_profile = UserProfile.objects.get(id=user_profile_id)
@@ -281,6 +281,39 @@ def send_news_update(user_profile_id):
                     valid_json = False
                     logger.error(f"No JSON array found in Gemini response: {summary_text}")
                 
+                # Filter out duplicate news items
+                if valid_json:
+                    # Get the last 100 news items for this user and section
+                    recent_news_items = NewsItem.objects.filter(
+                        user_profile=user_profile,
+                        news_section=section
+                    ).order_by('-created_at')[:100]
+                    
+                    # Filter out duplicates or items without significant changes
+                    filtered_news_items = []
+                    for item in news_items:
+                        headline = item.get("headline", "")
+                        details = item.get("details", "")
+                        
+                        # Check if this is a duplicate of a recent news item
+                        is_duplicate = False
+                        for recent_item in recent_news_items:
+                            if recent_item.is_similar_to(headline, details):
+                                logger.info(f"Filtered out duplicate news item: {headline}")
+                                is_duplicate = True
+                                break
+                        
+                        if not is_duplicate:
+                            filtered_news_items.append(item)
+                    
+                    # Replace the original news_items with the filtered list
+                    news_items = filtered_news_items
+                    
+                    # Log how many items were filtered out
+                    filtered_count = len(news_items) - len(filtered_news_items)
+                    if filtered_count > 0:
+                        logger.info(f"Filtered out {filtered_count} duplicate news items for section {section.name}")
+                
                 # Add section to plain text email
                 plain_text_content += f"\n\n## {section.name}\n\n"
                 
@@ -290,6 +323,23 @@ def send_news_update(user_profile_id):
                 if valid_json:
                     # Format the news items for plain text email
                     for item in news_items:
+                        # Store the news item in the database
+                        headline = item.get("headline", "")
+                        details = item.get("details", "")
+                        sources = item.get("sources", [])
+                        confidence = item.get("confidence", "medium")
+                        
+                        # Create a new NewsItem
+                        news_item = NewsItem(
+                            user_profile=user_profile,
+                            news_section=section,
+                            headline=headline,
+                            details=details,
+                            confidence=confidence
+                        )
+                        news_item.set_sources_list(sources)
+                        news_item.save()
+                        
                         headline = item.get("headline", "")
                         details = item.get("details", "")
                         sources = item.get("sources", [])
@@ -779,6 +829,52 @@ def fetch_url_content(url, use_browser=None):
                 # On last retry, try browser method
                 logger.info(f"Multiple errors, trying with headless browser for {url}")
                 return _fetch_with_browser(url)
+
+@shared_task
+def cleanup_old_news_items():
+    """Clean up old news items to prevent database bloat"""
+    from .models import NewsItem
+    from django.utils import timezone
+    from datetime import timedelta
+    
+    # Keep news items from the last 30 days
+    cutoff_date = timezone.now() - timedelta(days=30)
+    
+    # Get all news items older than the cutoff date, but ensure we keep at least 100 most recent items per section
+    old_items = NewsItem.objects.filter(created_at__lt=cutoff_date)
+    
+    # Get a list of all user_profile and news_section combinations
+    from django.db.models import Count
+    section_counts = NewsItem.objects.values('user_profile', 'news_section').annotate(
+        count=Count('id')
+    )
+    
+    # For each combination, ensure we keep at least 100 items
+    protected_ids = []
+    
+    for section_data in section_counts:
+        user_profile_id = section_data['user_profile']
+        news_section_id = section_data['news_section']
+        
+        # Get the IDs of the most recent 100 items for this section
+        recent_ids = NewsItem.objects.filter(
+            user_profile_id=user_profile_id,
+            news_section_id=news_section_id
+        ).order_by('-created_at')[:100].values_list('id', flat=True)
+        
+        protected_ids.extend(list(recent_ids))
+    
+    # Exclude the protected IDs from deletion
+    items_to_delete = old_items.exclude(id__in=protected_ids)
+    delete_count = items_to_delete.count()
+    
+    if delete_count > 0:
+        deleted, _ = items_to_delete.delete()
+        logger.info(f'Cleaned up {deleted} old news items')
+    else:
+        logger.info('No old news items to clean up')
+    
+    return delete_count
 
 @shared_task
 def check_scheduled_emails():

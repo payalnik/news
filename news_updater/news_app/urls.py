@@ -15,4 +15,6 @@ urlpatterns = [
     path('delete-news-section/<int:section_id>/', views.delete_news_section, name='delete_news_section'),
     path('update-time-slots/', views.update_time_slots, name='update_time_slots'),
     path('send-now/', views.send_now, name='send_now'),
+    path('news-history/', views.news_history, name='news_history'),
+    path('news-history/<int:section_id>/', views.news_history, name='news_history_section'),
 ]

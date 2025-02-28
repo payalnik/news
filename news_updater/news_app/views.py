@@ -7,8 +7,10 @@ from django.conf import settings
 from django.utils import timezone
 from datetime import datetime
 import logging
+import json
 
-from .models import UserProfile, NewsSection, TimeSlot, VerificationCode
+from .models import UserProfile, NewsSection, TimeSlot, VerificationCode, NewsItem
+from django.core.paginator import Paginator
 from .forms import SignUpForm, VerificationForm, NewsSectionForm, TimeSlotForm
 from .tasks import send_news_update
 
@@ -290,3 +292,48 @@ def send_now(request):
     
     messages.success(request, 'News update has been queued and will be sent shortly.')
     return redirect('dashboard')
+
+@login_required
+def news_history(request, section_id=None):
+    user_profile = request.user.profile
+    
+    if not user_profile.email_verified:
+        messages.warning(request, 'Please verify your email first.')
+        return redirect('verify_email')
+    
+    # Get all news sections for the user
+    news_sections = NewsSection.objects.filter(user_profile=user_profile)
+    
+    if not news_sections.exists():
+        messages.warning(request, 'Please add at least one news section first.')
+        return redirect('dashboard')
+    
+    # If section_id is provided, filter by that section, otherwise show all
+    if section_id:
+        section = get_object_or_404(NewsSection, id=section_id, user_profile=user_profile)
+        news_items = NewsItem.objects.filter(user_profile=user_profile, news_section=section)
+        current_section = section
+    else:
+        news_items = NewsItem.objects.filter(user_profile=user_profile)
+        current_section = None
+    
+    # Order by most recent first
+    news_items = news_items.order_by('-created_at')
+    
+    # Paginate the results
+    paginator = Paginator(news_items, 10)  # Show 10 items per page
+    page_number = request.GET.get('page')
+    page_obj = paginator.get_page(page_number)
+    
+    # Process the sources for each news item for display
+    for item in page_obj:
+        try:
+            item.sources_list = json.loads(item.sources)
+        except:
+            item.sources_list = []
+    
+    return render(request, 'news_app/news_history.html', {
+        'page_obj': page_obj,
+        'news_sections': news_sections,
+        'current_section': current_section,
+    })

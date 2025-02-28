@@ -1,0 +1,129 @@
+{% extends 'base.html' %}
+
+{% block title %}News History{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1 class="mb-4">News History</h1>
+    
+    <div class="row mb-4">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header">
+                    <ul class="nav nav-tabs card-header-tabs">
+                        <li class="nav-item">
+                            <a class="nav-link {% if not current_section %}active{% endif %}" href="{% url 'news_history' %}">All Sections</a>
+                        </li>
+                        {% for section in news_sections %}
+                        <li class="nav-item">
+                            <a class="nav-link {% if current_section.id == section.id %}active{% endif %}" href="{% url 'news_history_section' section.id %}">{{ section.name }}</a>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                </div>
+                <div class="card-body">
+                    {% if page_obj %}
+                        <div class="alert alert-info">
+                            <p>This page shows your news history. The system automatically filters out duplicate news items to avoid sending you the same news multiple times.</p>
+                            <p>Only news items with significant changes or new developments will be sent again.</p>
+                        </div>
+                        
+                        <div class="list-group">
+                            {% for item in page_obj %}
+                                <div class="list-group-item mb-3">
+                                    <div class="d-flex w-100 justify-content-between">
+                                        <h5 class="mb-1">{{ item.headline }}</h5>
+                                        <small class="text-muted">{{ item.created_at|date:"M d, Y" }}</small>
+                                    </div>
+                                    <p class="mb-1">{{ item.details }}</p>
+                                    
+                                    {% if item.sources_list %}
+                                        <div class="mt-2">
+                                            <small class="text-muted">Sources: 
+                                                {% for source in item.sources_list %}
+                                                    <a href="{{ source.url }}" target="_blank" class="mr-2">{{ source.title }}</a>
+                                                {% endfor %}
+                                            </small>
+                                        </div>
+                                    {% endif %}
+                                    
+                                    <div class="mt-2">
+                                        <span class="badge 
+                                            {% if item.confidence == 'high' %}badge-success
+                                            {% elif item.confidence == 'medium' %}badge-warning
+                                            {% elif item.confidence == 'low' %}badge-danger
+                                            {% else %}badge-secondary{% endif %}">
+                                            Confidence: {{ item.confidence }}
+                                        </span>
+                                        <small class="text-muted ml-2">Section: {{ item.news_section.name }}</small>
+                                    </div>
+                                </div>
+                            {% endfor %}
+                        </div>
+                        
+                        <!-- Pagination -->
+                        {% if page_obj.has_other_pages %}
+                            <nav aria-label="Page navigation" class="mt-4">
+                                <ul class="pagination justify-content-center">
+                                    {% if page_obj.has_previous %}
+                                        <li class="page-item">
+                                            <a class="page-link" href="?page=1">&laquo; First</a>
+                                        </li>
+                                        <li class="page-item">
+                                            <a class="page-link" href="?page={{ page_obj.previous_page_number }}">Previous</a>
+                                        </li>
+                                    {% else %}
+                                        <li class="page-item disabled">
+                                            <span class="page-link">&laquo; First</span>
+                                        </li>
+                                        <li class="page-item disabled">
+                                            <span class="page-link">Previous</span>
+                                        </li>
+                                    {% endif %}
+                                    
+                                    {% for num in page_obj.paginator.page_range %}
+                                        {% if page_obj.number == num %}
+                                            <li class="page-item active">
+                                                <span class="page-link">{{ num }} <span class="sr-only">(current)</span></span>
+                                            </li>
+                                        {% elif num > page_obj.number|add:'-3' and num < page_obj.number|add:'3' %}
+                                            <li class="page-item">
+                                                <a class="page-link" href="?page={{ num }}">{{ num }}</a>
+                                            </li>
+                                        {% endif %}
+                                    {% endfor %}
+                                    
+                                    {% if page_obj.has_next %}
+                                        <li class="page-item">
+                                            <a class="page-link" href="?page={{ page_obj.next_page_number }}">Next</a>
+                                        </li>
+                                        <li class="page-item">
+                                            <a class="page-link" href="?page={{ page_obj.paginator.num_pages }}">Last &raquo;</a>
+                                        </li>
+                                    {% else %}
+                                        <li class="page-item disabled">
+                                            <span class="page-link">Next</span>
+                                        </li>
+                                        <li class="page-item disabled">
+                                            <span class="page-link">Last &raquo;</span>
+                                        </li>
+                                    {% endif %}
+                                </ul>
+                            </nav>
+                        {% endif %}
+                    {% else %}
+                        <div class="alert alert-warning">
+                            <p>No news items found. News items will appear here after you receive your first news update.</p>
+                            <p>You can trigger a news update by clicking the "Send Now" button on the dashboard.</p>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="text-center mb-4">
+        <a href="{% url 'dashboard' %}" class="btn btn-primary">Back to Dashboard</a>
+    </div>
+</div>
+{% endblock %}
