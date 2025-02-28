@@ -7,10 +7,28 @@ class Command(BaseCommand):
 
     def handle(self, *args, **kwargs):
         # Create interval schedule (every 5 minutes)
-        schedule, created = IntervalSchedule.objects.get_or_create(
-            every=5,
-            period=IntervalSchedule.MINUTES,
-        )
+        # Handle potential duplicate schedules
+        try:
+            schedule = IntervalSchedule.objects.get(
+                every=5,
+                period=IntervalSchedule.MINUTES,
+            )
+            created = False
+        except IntervalSchedule.DoesNotExist:
+            schedule = IntervalSchedule.objects.create(
+                every=5,
+                period=IntervalSchedule.MINUTES,
+            )
+            created = True
+        except IntervalSchedule.MultipleObjectsReturned:
+            # If multiple objects exist, use the first one
+            schedules = IntervalSchedule.objects.filter(
+                every=5,
+                period=IntervalSchedule.MINUTES,
+            )
+            schedule = schedules.first()
+            created = False
+            self.stdout.write(self.style.WARNING(f'Found {schedules.count()} duplicate schedules, using the first one'))
         
         # Create periodic task
         task, created = PeriodicTask.objects.get_or_create(
