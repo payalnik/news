@@ -1,0 +1,176 @@
+/* Custom Admin CSS */
+
+/* Header styling */
+#header {
+    background: #2c3e50;
+    color: #ffffff;
+}
+
+#header a:link, #header a:visited {
+    color: #ffffff;
+}
+
+#user-tools a:focus, #user-tools a:hover {
+    border-bottom-color: #3498db;
+    color: #3498db;
+}
+
+/* Logo and branding */
+#branding h1 {
+    color: #ffffff;
+}
+
+.module h2, .module caption, .inline-group h2 {
+    background: #3498db;
+    color: #ffffff;
+}
+
+/* Button styling */
+.button, input[type=submit], input[type=button], .submit-row input, a.button {
+    background: #3498db;
+    color: #ffffff;
+    border-radius: 4px;
+}
+
+.button:hover, input[type=submit]:hover, input[type=button]:hover, .submit-row input:hover {
+    background: #2980b9;
+}
+
+.button.default, input[type=submit].default, .submit-row input.default {
+    background: #2ecc71;
+}
+
+.button.default:hover, input[type=submit].default:hover, .submit-row input.default:hover {
+    background: #27ae60;
+}
+
+/* Form styling */
+.form-row {
+    padding: 12px 0;
+}
+
+fieldset {
+    margin-bottom: 20px;
+}
+
+/* Table styling */
+table {
+    border-collapse: collapse;
+}
+
+td, th {
+    padding: 10px;
+    border-bottom: 1px solid #eee;
+}
+
+thead th {
+    background: #f8f8f8;
+    border-bottom: 1px solid #ddd;
+    font-weight: bold;
+}
+
+tr:hover {
+    background-color: #f5f5f5;
+}
+
+/* List styling */
+.object-tools a {
+    background: #3498db;
+    border-radius: 4px;
+}
+
+.object-tools a:hover {
+    background: #2980b9;
+}
+
+/* Dashboard styling */
+.dashboard .module table th {
+    width: 100%;
+}
+
+.dashboard .module table td {
+    white-space: nowrap;
+}
+
+.dashboard .module table td a {
+    display: block;
+    padding-right: 10px;
+}
+
+/* Breadcrumbs styling */
+div.breadcrumbs {
+    background: #34495e;
+    color: #ffffff;
+}
+
+div.breadcrumbs a {
+    color: #ffffff;
+}
+
+div.breadcrumbs a:hover {
+    color: #3498db;
+}
+
+/* Messages styling */
+.messagelist li {
+    padding: 10px 10px 10px 40px;
+    margin: 0 0 10px 0;
+    border-radius: 4px;
+}
+
+.messagelist li.success {
+    background: #dff0d8 url(../img/icon-yes.svg) 12px 9px no-repeat;
+    color: #3c763d;
+}
+
+.messagelist li.warning {
+    background: #fcf8e3 url(../img/icon-alert.svg) 12px 9px no-repeat;
+    color: #8a6d3b;
+}
+
+.messagelist li.error {
+    background: #f2dede url(../img/icon-no.svg) 12px 9px no-repeat;
+    color: #a94442;
+}
+
+/* Pagination styling */
+.paginator {
+    margin: 20px 0;
+    line-height: 22px;
+}
+
+.paginator a:link, .paginator a:visited {
+    padding: 5px 10px;
+    background: #f8f8f8;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+}
+
+.paginator a:hover {
+    background: #3498db;
+    color: #ffffff;
+    border-color: #3498db;
+}
+
+.paginator .this-page {
+    padding: 5px 10px;
+    background: #3498db;
+    color: #ffffff;
+    border: 1px solid #3498db;
+    border-radius: 4px;
+}
+
+/* Responsive improvements */
+@media (max-width: 767px) {
+    #header {
+        padding: 10px;
+    }
+    
+    #branding h1 {
+        font-size: 18px;
+    }
+    
+    #user-tools {
+        font-size: 12px;
+    }
+}
