@@ -86,12 +86,12 @@ def is_content_suitable_for_llm(text, url):
         word_counts = Counter([w for w in words if w not in common_words and len(w) > 3])
         most_common = word_counts.most_common(20)
         
-        # If any word appears with very high frequency, it might indicate repetitive content
-        for word, count in most_common:
-            frequency = count / len(words)
-            if frequency > 0.05 and count > 10:  # Word appears in >5% of text and >10 times
-                logger.warning(f"Content from {url} has suspicious repetition of '{word}' ({count} times, {frequency:.1%})")
-                return False
+    # If any word appears with very high frequency, it might indicate repetitive content
+    for word, count in most_common:
+        frequency = count / len(words)
+        if frequency > 0.1 and count > 100:  # Word appears in >5% of text and >10 times
+            logger.warning(f"Content from {url} has suspicious repetition of '{word}' ({count} times, {frequency:.1%})")
+            return False
     
     # Check for domain-specific issues
     domain = url.split('//')[1].split('/')[0]

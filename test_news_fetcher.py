@@ -24,6 +24,43 @@ logger = logging.getLogger('test_news_fetcher')
 fetch_logger = logging.getLogger('news_app.fetch')
 fetch_logger.setLevel(logging.DEBUG)
 
+def test_jina_fetch(url):
+    """Test fetching content using the Jina Reader method"""
+    logger.info(f"Testing Jina Reader-based fetch for URL: {url}")
+    start_time = time.time()
+    
+    try:
+        # Import the fetch_with_jina function
+        from news_updater.news_app.tasks import fetch_with_jina
+        
+        logger.info(f"Calling fetch_with_jina for {url}")
+        content = fetch_with_jina(url)
+        
+        if not content:
+            raise Exception("Jina Reader returned empty content")
+        
+        elapsed_time = time.time() - start_time
+        logger.info(f"Jina fetch completed in {elapsed_time:.2f} seconds")
+        
+        return {
+            "success": True,
+            "method": "jina",
+            "content_length": len(content),
+            "elapsed_time": elapsed_time,
+            "content": content
+        }
+    
+    except Exception as e:
+        elapsed_time = time.time() - start_time
+        logger.error(f"Jina fetch failed: {str(e)}")
+        return {
+            "success": False,
+            "method": "jina",
+            "error": str(e),
+            "elapsed_time": elapsed_time,
+            "content": None
+        }
+
 def test_requests_fetch(url):
     """Test fetching content using the requests method"""
     logger.info(f"Testing requests-based fetch for URL: {url}")
@@ -198,7 +235,7 @@ def analyze_content(content):
 def main():
     parser = argparse.ArgumentParser(description='Test news fetcher methods')
     parser.add_argument('url', help='URL to fetch')
-    parser.add_argument('--method', choices=['all', 'requests', 'browser', 'fetch_url_content'], 
+    parser.add_argument('--method', choices=['all', 'jina', 'requests', 'browser', 'fetch_url_content'], 
                         default='all', help='Fetching method to test')
     parser.add_argument('--output', help='Output file for the fetched content')
     args = parser.parse_args()
@@ -206,6 +243,24 @@ def main():
     results = []
     
     # Test the specified method(s)
+    if args.method in ['all', 'jina']:
+        result = test_jina_fetch(args.url)
+        results.append(result)
+        
+        print("\n" + "="*80)
+        print(f"JINA READER METHOD RESULTS:")
+        print(f"Success: {result['success']}")
+        print(f"Time: {result['elapsed_time']:.2f} seconds")
+        if result['success']:
+            print(f"Content length: {result['content_length']} characters")
+            print("\nContent analysis:")
+            print(analyze_content(result['content']))
+            print("\nContent preview (first 500 chars):")
+            print(result['content'][:500] + "...")
+        else:
+            print(f"Error: {result['error']}")
+        print("="*80 + "\n")
+    
     if args.method in ['all', 'requests']:
         result = test_requests_fetch(args.url)
         results.append(result)
