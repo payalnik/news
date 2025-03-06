@@ -3,24 +3,28 @@ from django.core.mail import send_mail, EmailMultiAlternatives
 from django.utils.html import format_html
 from django.conf import settings
 from django.utils import timezone
-# Try to import google.generativeai, but don't fail if it's not available
-try:
-    import google.generativeai as genai
-    GEMINI_AVAILABLE = True
-except ImportError:
-    GEMINI_AVAILABLE = False
-    import logging
-    logging.warning("google.generativeai module not available. Some features will be disabled.")
+import logging
+import os
 import requests
 from bs4 import BeautifulSoup
-import logging
 import random
 import time
 import json
 import re
 from .browser_fetch import _fetch_with_browser
 
+# Create specialized loggers
 logger = logging.getLogger(__name__)
+fetch_logger = logging.getLogger('news_app.fetch')
+gemini_logger = logging.getLogger('news_app.gemini')
+
+# Try to import google.generativeai, but don't fail if it's not available
+try:
+    import google.generativeai as genai
+    GEMINI_AVAILABLE = True
+except ImportError:
+    GEMINI_AVAILABLE = False
+    logging.warning("google.generativeai module not available. Some features will be disabled.")
 
 def is_content_suitable_for_llm(text, url):
     """
@@ -255,10 +259,15 @@ def send_news_update(user_profile_id):
                     valid_json = False
                 else:
                     # Use Gemini Flash 2.0 model
+                    gemini_logger.info(f"Sending request to Gemini for section '{section.name}'")
+                    gemini_logger.info(f"Full prompt to Gemini:\n{prompt}")
+                    
                     model = genai.GenerativeModel('gemini-2.0-flash')
                     response = model.generate_content(prompt)
                     
                     summary_text = response.text
+                    gemini_logger.info(f"Received response from Gemini for section '{section.name}'")
+                    gemini_logger.info(f"Full Gemini response:\n{summary_text}")
                 
                     # Check if Gemini needs more information
                     if "I need more information" in summary_text or "need additional content" in summary_text:
@@ -268,18 +277,27 @@ def send_news_update(user_profile_id):
                 
                 # Try to parse the JSON response
                 # Extract JSON array from the response if it's not a clean JSON
+                gemini_logger.info(f"Attempting to parse JSON from Gemini response for section '{section.name}'")
                 json_match = re.search(r'\[\s*\{.*\}\s*\]', summary_text, re.DOTALL)
                 
                 if json_match:
                     try:
-                        news_items = json.loads(json_match.group(0))
+                        json_str = json_match.group(0)
+                        gemini_logger.info(f"Found JSON array in Gemini response, length: {len(json_str)} chars")
+                        news_items = json.loads(json_str)
                         valid_json = True
-                    except json.JSONDecodeError:
+                        gemini_logger.info(f"Successfully parsed JSON, found {len(news_items)} news items")
+                    except json.JSONDecodeError as e:
                         valid_json = False
-                        logger.error(f"Failed to parse JSON from Gemini response: {summary_text}")
+                        error_msg = f"Failed to parse JSON from Gemini response: {e}"
+                        logger.error(error_msg)
+                        gemini_logger.error(error_msg)
+                        gemini_logger.error(f"JSON parsing error. Problematic JSON: {json_match.group(0)[:500]}...")
                 else:
                     valid_json = False
-                    logger.error(f"No JSON array found in Gemini response: {summary_text}")
+                    error_msg = "No JSON array found in Gemini response"
+                    logger.error(error_msg)
+                    gemini_logger.error(f"{error_msg} for section '{section.name}'")
                 
                 # Filter out duplicate news items
                 if valid_json:
@@ -603,13 +621,19 @@ def fetch_url_content(url, use_browser=None):
         url: The URL to fetch
         use_browser: None (auto-detect), True (force browser), False (force requests)
     """
+    fetch_logger.info(f"Starting fetch for URL: {url}, use_browser={use_browser}")
+    
     # Special handling for known problematic sites
     domain = url.split('//')[1].split('/')[0]
     problematic_sites = ['mv-voice.com', 'paloaltoonline.com', 'almanacnews.com']
     
     if any(site in domain for site in problematic_sites):
-        logger.info(f"Known problematic site detected: {domain}. Using browser fetch directly.")
-        return _fetch_with_browser(url)
+        fetch_logger.info(f"Known problematic site detected: {domain}. Using browser fetch directly.")
+        content = _fetch_with_browser(url)
+        fetch_logger.info(f"Browser fetch for {url} completed, content length: {len(content)} chars")
+        # Log the first 500 chars of content for debugging
+        fetch_logger.info(f"Content preview (first 500 chars): {content[:500]}...")
+        return content
     # Modern, up-to-date user agents
     user_agents = [
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
@@ -700,15 +724,22 @@ def fetch_url_content(url, use_browser=None):
                         logger.warning(f"Failed to visit domain homepage {domain_url}: {str(e)}")
             
             # Now fetch the actual URL
+            fetch_logger.info(f"Fetching URL with requests: {url}")
+            fetch_logger.info(f"Using headers: {headers}")
             response = session.get(url, headers=headers, timeout=15, cookies=cookies)
             response.raise_for_status()
             
+            fetch_logger.info(f"Response received from {url}, status: {response.status_code}, content length: {len(response.text)} chars")
+            
             # Check if we got a valid response
             if not response.text or len(response.text) < 100:
-                logger.warning(f"Response too short from {url}, likely blocked or invalid")
+                fetch_logger.warning(f"Response too short from {url}, likely blocked or invalid")
                 # Try with headless browser immediately if content is too short
-                logger.info(f"Response too short, trying with headless browser for {url}")
-                return _fetch_with_browser(url)
+                fetch_logger.info(f"Response too short, trying with headless browser for {url}")
+                content = _fetch_with_browser(url)
+                fetch_logger.info(f"Browser fetch for {url} completed, content length: {len(content)} chars")
+                fetch_logger.info(f"Content preview (first 500 chars): {content[:500]}...")
+                return content
             
             # Check for common anti-bot patterns
             if "captcha" in response.text.lower() or "cloudflare" in response.text.lower():

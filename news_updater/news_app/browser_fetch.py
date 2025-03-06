@@ -3,10 +3,13 @@ import time
 import random
 from bs4 import BeautifulSoup
 
+# Create specialized loggers
 logger = logging.getLogger(__name__)
+fetch_logger = logging.getLogger('news_app.fetch')
 
 def _fetch_with_browser(url):
     """Fetch URL content using a headless browser for JavaScript-heavy sites"""
+    fetch_logger.info(f"Starting browser-based fetch for URL: {url}")
     try:
         import selenium
         from selenium import webdriver
@@ -18,10 +21,13 @@ def _fetch_with_browser(url):
         from selenium.common.exceptions import TimeoutException, ElementClickInterceptedException
         # Do not use chromedriver_autoinstaller as it's causing version conflicts
     except ImportError:
-        logger.error("Selenium not installed. Install with: pip install selenium")
+        error_msg = "Selenium not installed. Install with: pip install selenium"
+        logger.error(error_msg)
+        fetch_logger.error(error_msg)
         raise ImportError("Required packages not installed: selenium")
     
     logger.info(f"Fetching {url} with headless browser")
+    fetch_logger.info(f"Initializing browser for URL: {url}")
     
     # Import necessary modules
     import tempfile
@@ -149,45 +155,97 @@ def _fetch_with_browser(url):
                 try:
                     from playwright.sync_api import sync_playwright
                     
+                    # Check if we're running in a headless environment
+                    is_headless = True
+                    
+                    # Add more detailed logging
+                    logger.info("Initializing Playwright with sync_playwright()")
+                    
                     with sync_playwright() as p:
-                        # Try to launch Chromium browser
-                        browser = p.chromium.launch(headless=True)
-                        page = browser.new_page()
-                        page.goto(url)
-                        
-                        # Wait for the page to load
-                        page.wait_for_load_state("networkidle")
-                        
-                        # Get the page content
-                        content = page.content()
-                        
-                        # Parse with BeautifulSoup
-                        soup = BeautifulSoup(content, 'html.parser')
-                        
-                        # Remove script, style, and other non-content elements
-                        for element in soup(["script", "style", "header", "footer", "nav", "aside"]):
-                            element.extract()
-                        
-                        # Process the text
-                        text = soup.get_text(separator='\n')
-                        lines = (line.strip() for line in text.splitlines())
-                        chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
-                        text = '\n'.join(chunk for chunk in chunks if chunk)
-                        
-                        # Close the browser
-                        browser.close()
-                        
-                        # Return the text
-                        return text[:15000] + "..." if len(text) > 15000 else text
-                except ImportError:
-                    logger.warning("Playwright not installed, falling back to Selenium")
+                        try:
+                            # Try to launch Chromium browser with more options
+                            logger.info("Launching Chromium browser with Playwright")
+                            browser = p.chromium.launch(
+                                headless=is_headless,
+                                args=[
+                                    '--no-sandbox',
+                                    '--disable-dev-shm-usage',
+                                    '--disable-gpu',
+                                    '--disable-extensions',
+                                    '--disable-setuid-sandbox'
+                                ]
+                            )
+                            
+                            # Create a new page with a timeout
+                            logger.info("Creating new page")
+                            page = browser.new_page(
+                                viewport={"width": 1280, "height": 800},
+                                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36"
+                            )
+                            
+                            # Navigate to the URL with a timeout
+                            logger.info(f"Navigating to {url}")
+                            fetch_logger.info(f"Playwright: Navigating to {url}")
+                            page.goto(url, timeout=30000)  # 30 seconds timeout
+                            
+                            # Wait for the page to load
+                            logger.info("Waiting for page to load")
+                            fetch_logger.info("Playwright: Waiting for page to load (networkidle state)")
+                            page.wait_for_load_state("networkidle", timeout=30000)
+                            
+                            # Get the page content
+                            logger.info("Getting page content")
+                            fetch_logger.info("Playwright: Retrieving page content")
+                            content = page.content()
+                            fetch_logger.info(f"Playwright: Retrieved page content, length: {len(content)} chars")
+                            
+                            # Parse with BeautifulSoup
+                            soup = BeautifulSoup(content, 'html.parser')
+                            
+                            # Remove script, style, and other non-content elements
+                            for element in soup(["script", "style", "header", "footer", "nav", "aside"]):
+                                element.extract()
+                            
+                            # Process the text
+                            fetch_logger.info("Playwright: Processing extracted text content")
+                            text = soup.get_text(separator='\n')
+                            lines = (line.strip() for line in text.splitlines())
+                            chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
+                            text = '\n'.join(chunk for chunk in chunks if chunk)
+                            
+                            # Close the browser
+                            logger.info("Closing Playwright browser")
+                            browser.close()
+                            
+                            # Return the text
+                            logger.info("Successfully fetched content with Playwright")
+                            final_text = text[:15000] + "..." if len(text) > 15000 else text
+                            fetch_logger.info(f"Playwright: Finished processing content, final length: {len(final_text)} chars")
+                            fetch_logger.info(f"Playwright: Content preview (first 500 chars): {final_text[:500]}...")
+                            return final_text
+                        except Exception as inner_e:
+                            logger.error(f"Error during Playwright execution: {str(inner_e)}")
+                            # Close browser if it was created
+                            if 'browser' in locals():
+                                try:
+                                    browser.close()
+                                except:
+                                    pass
+                            raise inner_e
+                except ImportError as import_err:
+                    logger.warning(f"Playwright not installed: {str(import_err)}")
+                    logger.warning("Install with: pip install playwright")
+                    logger.warning("Then run: playwright install")
+                    raise import_err
             except Exception as e:
                 logger.warning(f"Failed to use Playwright: {str(e)}")
+                logger.warning("If you're seeing missing dependencies, run: playwright install-deps")
+                logger.warning("Or use the install_playwright_dependencies.sh script")
             
             # If Playwright failed, try Selenium with a custom approach
             logger.info("Trying custom Selenium approach...")
             
-            # Try to use a specific version of ChromeDriver that matches Chrome 2.67
+            # Try to use a specific version of ChromeDriver that matches Chrome
             from selenium.webdriver.chrome.service import Service
             
             # Try to find a compatible chromedriver
@@ -201,12 +259,45 @@ def _fetch_with_browser(url):
             
             # If we found a compatible chromedriver, use it
             if chromedriver_path:
-                service = Service(executable_path=chromedriver_path)
-                driver = webdriver.Chrome(service=service, options=chrome_options)
+                try:
+                    logger.info(f"Using chromedriver from: {chromedriver_path}")
+                    service = Service(executable_path=chromedriver_path)
+                    driver = webdriver.Chrome(service=service, options=chrome_options)
+                    logger.info("Successfully initialized Chrome with custom chromedriver")
+                except Exception as chrome_err:
+                    logger.error(f"Failed to initialize Chrome with custom chromedriver: {str(chrome_err)}")
+                    logger.info("The chromedriver version might not match the Chrome/Chromium version.")
+                    logger.info("Run the update_chromedriver.sh script to download a compatible version.")
+                    
+                    # Try with chromedriver-autoinstaller as a last resort
+                    try:
+                        logger.info("Trying with chromedriver-autoinstaller...")
+                        import chromedriver_autoinstaller
+                        chromedriver_autoinstaller.install()
+                        driver = webdriver.Chrome(options=chrome_options)
+                        logger.info("Successfully initialized Chrome with auto-installed chromedriver")
+                    except Exception as auto_err:
+                        logger.error(f"Failed to initialize Chrome with auto-installed chromedriver: {str(auto_err)}")
+                        raise auto_err
             else:
                 # Try with system chromedriver
-                logger.info("Trying with system chromedriver...")
-                driver = webdriver.Chrome(options=chrome_options)
+                try:
+                    logger.info("Trying with system chromedriver...")
+                    driver = webdriver.Chrome(options=chrome_options)
+                    logger.info("Successfully initialized Chrome with system chromedriver")
+                except Exception as sys_err:
+                    logger.error(f"Failed to initialize Chrome with system chromedriver: {str(sys_err)}")
+                    
+                    # Try with chromedriver-autoinstaller as a last resort
+                    try:
+                        logger.info("Trying with chromedriver-autoinstaller...")
+                        import chromedriver_autoinstaller
+                        chromedriver_autoinstaller.install()
+                        driver = webdriver.Chrome(options=chrome_options)
+                        logger.info("Successfully initialized Chrome with auto-installed chromedriver")
+                    except Exception as auto_err:
+                        logger.error(f"Failed to initialize Chrome with auto-installed chromedriver: {str(auto_err)}")
+                        raise auto_err
         except Exception as e:
             logger.error(f"All browser initialization attempts failed: {str(e)}")
             
@@ -244,14 +335,19 @@ def _fetch_with_browser(url):
         
         # Set page load timeout
         driver.set_page_load_timeout(30)
+        fetch_logger.info("Selenium: Set page load timeout to 30 seconds")
         
         # Navigate to the URL
+        fetch_logger.info(f"Selenium: Navigating to {url}")
         driver.get(url)
+        fetch_logger.info(f"Selenium: Successfully loaded {url}")
         
         # Wait for page to load
+        fetch_logger.info("Selenium: Waiting for body element to be present")
         WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.TAG_NAME, "body"))
         )
+        fetch_logger.info("Selenium: Body element found, page loaded")
         
         # Handle site-specific issues
         domain = url.split('//')[1].split('/')[0]
@@ -381,12 +477,16 @@ def _fetch_with_browser(url):
             text = soup.get_text(separator='\n')
         
         # Process the text
+        fetch_logger.info("Selenium: Processing extracted text content")
         lines = (line.strip() for line in text.splitlines())
         chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
         text = '\n'.join(chunk for chunk in chunks if chunk)
         
         # Limit text length to avoid overwhelming Gemini
-        return text[:15000] + "..." if len(text) > 15000 else text
+        final_text = text[:15000] + "..." if len(text) > 15000 else text
+        fetch_logger.info(f"Selenium: Finished processing content, final length: {len(final_text)} chars")
+        fetch_logger.info(f"Selenium: Content preview (first 500 chars): {final_text[:500]}...")
+        return final_text
         
     finally:
         # Clean up resources
