@@ -613,15 +613,94 @@ def send_news_update(user_profile_id):
         logger.error(f"Error sending news update: {str(e)}")
         return False
 
-def fetch_url_content(url, use_browser=None):
+def fetch_with_jina(url):
     """
-    Fetch and extract text content from a URL with adaptive browser simulation
+    Fetch URL content using Jina Reader API (r.jina.ai)
+    
+    Args:
+        url: The URL to fetch
+    """
+    fetch_logger.info(f"Starting Jina-based fetch for URL: {url}")
+    start_time = time.time()
+    
+    try:
+        # Construct the Jina Reader API URL
+        jina_url = f"https://r.jina.ai/{url}"
+        
+        # Set up headers to appear as a regular browser
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Referer': 'https://jina.ai/',
+            'DNT': '1',
+        }
+        
+        # Make the request to Jina Reader
+        fetch_logger.info(f"Sending request to Jina Reader for {url}")
+        response = requests.get(jina_url, headers=headers, timeout=30)
+        response.raise_for_status()
+        
+        # Process the response
+        content = response.text
+        
+        # Parse with BeautifulSoup to clean up the content
+        soup = BeautifulSoup(content, 'html.parser')
+        
+        # Remove script, style, and other non-content elements
+        for element in soup(["script", "style", "header", "footer", "nav", "aside"]):
+            element.extract()
+        
+        # Process the text
+        text = soup.get_text(separator='\n')
+        lines = (line.strip() for line in text.splitlines())
+        chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
+        text = '\n'.join(chunk for chunk in chunks if chunk)
+        
+        elapsed_time = time.time() - start_time
+        fetch_logger.info(f"Jina fetch completed in {elapsed_time:.2f} seconds")
+        fetch_logger.info(f"Jina fetch for {url} completed, content length: {len(text)} chars")
+        fetch_logger.info(f"Content preview (first 500 chars): {text[:500]}...")
+        
+        # Limit text length to avoid overwhelming Gemini
+        return text[:15000] + "..." if len(text) > 15000 else text
+        
+    except Exception as e:
+        elapsed_time = time.time() - start_time
+        fetch_logger.error(f"Jina fetch failed for {url}: {str(e)}")
+        # We'll let the function continue to try other methods
+        fetch_logger.info(f"Falling back to other fetching methods for {url}")
+        return None
+
+def fetch_url_content(url, use_browser=None, use_jina=True):
+    """
+    Fetch and extract text content from a URL with adaptive fetching methods
     
     Args:
         url: The URL to fetch
         use_browser: None (auto-detect), True (force browser), False (force requests)
+        use_jina: True (try Jina first), False (skip Jina)
     """
-    fetch_logger.info(f"Starting fetch for URL: {url}, use_browser={use_browser}")
+    fetch_logger.info(f"Starting fetch for URL: {url}, use_browser={use_browser}, use_jina={use_jina}")
+    
+    # Try Jina first if enabled
+    if use_jina:
+        try:
+            fetch_logger.info(f"Attempting to fetch {url} using Jina Reader")
+            jina_content = fetch_with_jina(url)
+            if jina_content and len(jina_content) > 500:
+                fetch_logger.info(f"Successfully fetched content with Jina Reader, length: {len(jina_content)} chars")
+                
+                # Check if the content is suitable for LLM processing
+                if is_content_suitable_for_llm(jina_content, url):
+                    fetch_logger.info(f"Jina content is suitable for LLM processing")
+                    return jina_content
+                else:
+                    fetch_logger.info(f"Jina content not suitable for LLM processing, trying other methods")
+            else:
+                fetch_logger.info(f"Jina content too short or empty, trying other methods")
+        except Exception as e:
+            fetch_logger.error(f"Error using Jina Reader: {str(e)}")
     
     # Special handling for known problematic sites
     domain = url.split('//')[1].split('/')[0]
