@@ -109,6 +109,12 @@ tmux new-session -d -s news_updater
 tmux split-window -h -t news_updater
 tmux split-window -v -t news_updater:0.1
 
+# Set up periodic tasks first to ensure they're up-to-date
+echo -e "${YELLOW}Setting up periodic tasks...${NC}"
+cd news_updater && python manage.py setup_periodic_tasks
+cd ..
+echo -e "${GREEN}✓ Periodic tasks set up successfully.${NC}"
+
 # Start Django server in the first pane
 tmux send-keys -t news_updater:0.0 "cd news_updater && python manage.py runserver" C-m
 
