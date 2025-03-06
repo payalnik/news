@@ -1,0 +1,12 @@
+{% if show %}
+<div class="xfull">
+<ul class="toplinks">
+{% if back %}<li class="date-back"><a href="{{ back.link }}">&lsaquo; {{ back.title }}</a></li>{% endif %}
+{% for choice in choices %}
+<li class="{% if choice.link %}date-choice{% else %}date-active{% endif %}">
+{% if choice.link %}<a href="{{ choice.link }}">{{ choice.title }}</a>{% else %}{{ choice.title }}{% endif %}
+</li>
+{% endfor %}
+</ul><br class="clear">
+</div>
+{% endif %}

@@ -1,0 +1,134 @@
+{% extends "admin/base_site.html" %}
+{% load i18n static %}
+
+{% block extrastyle %}
+  {{ block.super }}
+  <link rel="stylesheet" type="text/css" href="{% static 'admin/css/dashboard.css' %}">
+  <style>
+    .dashboard .module {
+      border-radius: 6px;
+      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+      margin-bottom: 20px;
+      background: white;
+      border: 1px solid #eee;
+    }
+    
+    .dashboard .module h2 {
+      border-radius: 6px 6px 0 0;
+      padding: 12px 15px;
+    }
+    
+    .dashboard .module table {
+      width: 100%;
+    }
+    
+    .dashboard .module table th,
+    .dashboard .module table td {
+      padding: 12px 15px;
+    }
+    
+    .dashboard .module table tr:last-child td {
+      border-bottom: none;
+    }
+    
+    .dashboard .module a:link, 
+    .dashboard .module a:visited {
+      color: #3498db;
+    }
+    
+    .dashboard .module a:hover {
+      color: #2980b9;
+    }
+    
+    .dashboard .module caption a:link, 
+    .dashboard .module caption a:visited {
+      color: white;
+      font-weight: bold;
+    }
+    
+    #content-related {
+      background: white;
+      border-radius: 6px;
+      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+      border: 1px solid #eee;
+    }
+    
+    #content-related .module {
+      box-shadow: none;
+      border: none;
+      margin-bottom: 0;
+    }
+    
+    #content-related .module h2 {
+      background: #f8f8f8;
+      color: #333;
+      border-bottom: 1px solid #eee;
+    }
+    
+    #recent-actions-module h2 {
+      border-radius: 6px 6px 0 0;
+    }
+    
+    #recent-actions-module h3 {
+      font-size: 14px;
+      color: #666;
+      padding: 5px 15px;
+      margin: 10px 0 5px 0;
+      border-top: 1px solid #eee;
+    }
+    
+    #recent-actions-module ul {
+      padding: 0 15px 15px 15px;
+    }
+    
+    #recent-actions-module ul li {
+      margin-bottom: 5px;
+    }
+  </style>
+{% endblock %}
+
+{% block coltype %}colMS{% endblock %}
+
+{% block bodyclass %}{{ block.super }} dashboard{% endblock %}
+
+{% block breadcrumbs %}{% endblock %}
+
+{% block nav-sidebar %}{% endblock %}
+
+{% block content %}
+<div id="content-main">
+  {% include "admin/app_list.html" with app_list=app_list show_changelinks=True %}
+</div>
+{% endblock %}
+
+{% block sidebar %}
+<div id="content-related">
+    <div class="module" id="recent-actions-module">
+        <h2>{% translate 'Recent actions' %}</h2>
+        <h3>{% translate 'My actions' %}</h3>
+        {% load log %}
+        {% get_admin_log 10 as admin_log for_user user %}
+        {% if not admin_log %}
+        <p>{% translate 'None available' %}</p>
+        {% else %}
+        <ul class="actionlist">
+        {% for entry in admin_log %}
+        <li class="{% if entry.is_addition %}addlink{% endif %}{% if entry.is_change %}changelink{% endif %}{% if entry.is_deletion %}deletelink{% endif %}">
+            {% if entry.is_deletion or not entry.get_admin_url %}
+                {{ entry.object_repr }}
+            {% else %}
+                <a href="{{ entry.get_admin_url }}">{{ entry.object_repr }}</a>
+            {% endif %}
+            <br>
+            {% if entry.content_type %}
+                <span class="mini quiet">{% filter capfirst %}{{ entry.content_type.name }}{% endfilter %}</span>
+            {% else %}
+                <span class="mini quiet">{% translate 'Unknown content' %}</span>
+            {% endif %}
+        </li>
+        {% endfor %}
+        </ul>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
