@@ -647,4 +647,475 @@ def send_news_update(user_profile_id):
                             current_pos = p_end + 4  # Move past </p>
                         
                         # If we ended while still in a list, close it
-                        if in_
+                        if in_list:
+                            chunks.append("</ul>")
+                        
+                        # Join all chunks to form the new HTML
+                        html_summary = "".join(chunks)
+                    
+                    html_content += html_summary
+                
+                # Add source links section if we're not using the JSON format
+                if not valid_json:
+                    plain_text_content += "Sources:\n"
+                    for url in source_urls:
+                        plain_text_content += f"- {url}\n"
+                    
+                    html_content += '<div class="source-links"><strong>Sources:</strong> '
+                    for url in source_urls:
+                        domain = url.split("//")[-1].split("/")[0]
+                        html_content += f'<a href="{url}" target="_blank">{domain}</a> '
+                    html_content += '</div>'
+                
+            except Exception as e:
+                logger.error(f"Error generating summary with Gemini: {str(e)}")
+                error_message = f"Error generating summary: {str(e)}"
+                plain_text_content += f"\n\n## {section.name}\n\n{error_message}\n\n"
+                html_content += f"<h2>{section.name}</h2><p>{error_message}</p>"
+        
+        # Complete HTML content
+        html_content += """
+            <div class="footer">
+                <p>This email was automatically generated and sent by your News Updater service.</p>
+            </div>
+        </body>
+        </html>
+        """
+        
+        # Send email
+        subject = f"Your News Update - {timezone.now().strftime('%Y-%m-%d')}"
+        from_email = settings.DEFAULT_FROM_EMAIL
+        recipient_list = [user.email]
+        
+        # Send both plain text and HTML versions
+        email = EmailMultiAlternatives(
+            subject=subject,
+            body=plain_text_content,
+            from_email=from_email,
+            to=recipient_list
+        )
+        email.attach_alternative(html_content, "text/html")
+        email.send()
+        
+        logger.info(f"News update sent to {user.email}")
+        
+        return True
+    
+    except Exception as e:
+        logger.error(f"Error sending news update: {str(e)}")
+        return False
+
+def fetch_with_jina(url):
+    """
+    Fetch URL content using Jina Reader API (r.jina.ai)
+    
+    Args:
+        url: The URL to fetch
+    """
+    fetch_logger.info(f"Starting Jina-based fetch for URL: {url}")
+    start_time = time.time()
+    
+    try:
+        # Construct the Jina Reader API URL
+        jina_url = f"https://r.jina.ai/{url}"
+        
+        # Set up headers to appear as a regular browser
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Referer': 'https://jina.ai/',
+            'DNT': '1',
+        }
+        
+        # Make the request to Jina Reader
+        fetch_logger.info(f"Sending request to Jina Reader for {url}")
+        response = requests.get(jina_url, headers=headers, timeout=30)
+        response.raise_for_status()
+        
+        # Process the response
+        content = response.text
+        
+        # Parse with BeautifulSoup to clean up the content
+        soup = BeautifulSoup(content, 'html.parser')
+        
+        # Remove script, style, and other non-content elements
+        for element in soup(["script", "style", "header", "footer", "nav", "aside"]):
+            element.extract()
+        
+        # Process the text
+        text = soup.get_text(separator='\n')
+        lines = (line.strip() for line in text.splitlines())
+        chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
+        text = '\n'.join(chunk for chunk in chunks if chunk)
+        
+        elapsed_time = time.time() - start_time
+        fetch_logger.info(f"Jina fetch completed in {elapsed_time:.2f} seconds")
+        fetch_logger.info(f"Jina fetch for {url} completed, content length: {len(text)} chars")
+        fetch_logger.info(f"Content preview (first 500 chars): {text[:500]}...")
+        
+        # Limit text length to avoid overwhelming Gemini
+        return text[:15000] + "..." if len(text) > 15000 else text
+        
+    except Exception as e:
+        elapsed_time = time.time() - start_time
+        fetch_logger.error(f"Jina fetch failed for {url}: {str(e)}")
+        # We'll let the function continue to try other methods
+        fetch_logger.info(f"Falling back to other fetching methods for {url}")
+        return None
+
+def fetch_url_content(url, use_browser=None, use_jina=True):
+    """
+    Fetch and extract text content from a URL with adaptive fetching methods
+    
+    Args:
+        url: The URL to fetch
+        use_browser: None (auto-detect), True (force browser), False (force requests)
+        use_jina: True (try Jina first), False (skip Jina)
+    """
+    fetch_logger.info(f"Starting fetch for URL: {url}, use_browser={use_browser}, use_jina={use_jina}")
+    
+    # Try Jina first if enabled
+    if use_jina:
+        try:
+            fetch_logger.info(f"Attempting to fetch {url} using Jina Reader")
+            jina_content = fetch_with_jina(url)
+            if jina_content and len(jina_content) > 500:
+                fetch_logger.info(f"Successfully fetched content with Jina Reader, length: {len(jina_content)} chars")
+                
+                # Check if the content is suitable for LLM processing
+                if is_content_suitable_for_llm(jina_content, url):
+                    fetch_logger.info(f"Jina content is suitable for LLM processing")
+                    return jina_content
+                else:
+                    fetch_logger.info(f"Jina content not suitable for LLM processing, trying other methods")
+            else:
+                fetch_logger.info(f"Jina content too short or empty, trying other methods")
+        except Exception as e:
+            fetch_logger.error(f"Error using Jina Reader: {str(e)}")
+    
+    # Special handling for known problematic sites
+    domain = url.split('//')[1].split('/')[0]
+    problematic_sites = ['mv-voice.com', 'paloaltoonline.com', 'almanacnews.com']
+    
+    if any(site in domain for site in problematic_sites):
+        fetch_logger.info(f"Known problematic site detected: {domain}. Using browser fetch directly.")
+        content = _fetch_with_browser(url)
+        fetch_logger.info(f"Browser fetch for {url} completed, content length: {len(content)} chars")
+        # Log the first 500 chars of content for debugging
+        fetch_logger.info(f"Content preview (first 500 chars): {content[:500]}...")
+        return content
+    # Modern, up-to-date user agents
+    user_agents = [
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:123.0) Gecko/20100101 Firefox/123.0',
+        'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Edge/121.0.0.0 Safari/537.36'
+    ]
+    
+    # If browser use is explicitly requested, use it
+    if use_browser is True:
+        try:
+            return _fetch_with_browser(url)
+        except Exception as e:
+            logger.error(f"Browser-based fetching failed for {url}: {str(e)}")
+            logger.info(f"Falling back to requests-based fetching for {url}")
+            # Fall back to requests-based fetching
+    
+    # If browser use is explicitly forbidden, don't use it
+    if use_browser is False:
+        # Skip browser and go straight to requests
+        pass
+    
+    # Otherwise, try requests first and fall back to browser if needed
+    
+    # More realistic browser headers
+    chosen_ua = random.choice(user_agents)
+    is_chrome = 'Chrome' in chosen_ua
+    is_firefox = 'Firefox' in chosen_ua
+    is_safari = 'Safari' in chosen_ua and 'Chrome' not in chosen_ua
+    
+    headers = {
+        'User-Agent': chosen_ua,
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Referer': 'https://www.google.com/search?q=' + '+'.join(url.split('//')[1].split('/')[0].split('.')),
+        'DNT': '1',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'cross-site',
+        'Sec-Fetch-User': '?1',
+        'Cache-Control': 'max-age=0',
+    }
+    
+    # Browser-specific headers
+    if is_chrome:
+        headers['sec-ch-ua'] = '"Google Chrome";v="121", "Not;A=Brand";v="8"'
+        headers['sec-ch-ua-mobile'] = '?0'
+        headers['sec-ch-ua-platform'] = '"Windows"' if 'Windows' in chosen_ua else '"macOS"'
+    
+    # Create a session to maintain cookies
+    session = requests.Session()
+    
+    # Set a realistic cookie
+    cookies = {
+        'visited': 'true',
+        'session_id': f"{random.randint(1000000, 9999999)}",
+        'consent': 'true',
+    }
+    
+    max_retries = 2  # Reduced from 3 to 2 to try browser sooner
+    retry_delay = 2  # seconds
+    
+    for attempt in range(max_retries):
+        try:
+            # Add jitter to appear more human-like
+            if attempt > 0:
+                jitter = random.uniform(0.5, 1.5)
+                time.sleep(retry_delay * (attempt + 1) * jitter)
+            
+            logger.info(f"Fetching content from {url} (attempt {attempt+1}/{max_retries})")
+            
+            # First visit the domain homepage to set cookies
+            if attempt == 0:
+                domain = url.split('//')[1].split('/')[0]
+                domain_url = f"https://{domain}"
+                if domain_url != url:
+                    try:
+                        logger.info(f"First visiting domain homepage: {domain_url}")
+                        session.get(domain_url, headers=headers, timeout=10, cookies=cookies)
+                        # Small delay to simulate human browsing
+                        time.sleep(random.uniform(1, 3))
+                    except Exception as e:
+                        logger.warning(f"Failed to visit domain homepage {domain_url}: {str(e)}")
+            
+            # Now fetch the actual URL
+            fetch_logger.info(f"Fetching URL with requests: {url}")
+            fetch_logger.info(f"Using headers: {headers}")
+            response = session.get(url, headers=headers, timeout=15, cookies=cookies)
+            response.raise_for_status()
+            
+            fetch_logger.info(f"Response received from {url}, status: {response.status_code}, content length: {len(response.text)} chars")
+            
+            # Check if we got a valid response
+            if not response.text or len(response.text) < 100:
+                fetch_logger.warning(f"Response too short from {url}, likely blocked or invalid")
+                # Try with headless browser immediately if content is too short
+                fetch_logger.info(f"Response too short, trying with headless browser for {url}")
+                content = _fetch_with_browser(url)
+                fetch_logger.info(f"Browser fetch for {url} completed, content length: {len(content)} chars")
+                fetch_logger.info(f"Content preview (first 500 chars): {content[:500]}...")
+                return content
+            
+            # Check for common anti-bot patterns
+            if "captcha" in response.text.lower() or "cloudflare" in response.text.lower():
+                logger.warning(f"Possible anti-bot protection detected on {url}")
+                # Try with headless browser immediately if anti-bot protection is detected
+                logger.info(f"Anti-bot protection detected, trying with headless browser for {url}")
+                return _fetch_with_browser(url)
+            
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            # Remove script, style, and other non-content elements
+            for element in soup(["script", "style", "header", "footer", "nav", "aside", "iframe", "noscript"]):
+                element.extract()
+            
+            # Try to find the main content area if possible
+            main_content = None
+            
+            # Site-specific selectors for problematic sites
+            site_specific_selectors = {
+                'mv-voice.com': ['.story', '.story-body', '.article-body', '.article-text'],
+                'sfchronicle.com': ['.article-body', '.article', '.story-body', '.paywall-article'],
+                'mercurynews.com': ['.article-body', '.entry-content', '.article', '.story-body']
+            }
+            
+            # Check if we're on a site with specific selectors
+            domain = url.split('//')[1].split('/')[0]
+            if any(site in domain for site in site_specific_selectors.keys()):
+                for site, selectors in site_specific_selectors.items():
+                    if site in domain:
+                        for selector in selectors:
+                            content = soup.select(selector)
+                            if content:
+                                main_content = content[0]
+                                logger.info(f"Found main content using site-specific selector {selector} for {site}")
+                                break
+                        if main_content:
+                            break
+            
+            # If no site-specific selector worked, try generic selectors
+            if not main_content:
+                content_selectors = [
+                    'main', 'article', '#content', '.content', '#main', '.main', '.article', '.post',
+                    '.story', '.entry', '[role="main"]', '.story-body', '.article-body', '.entry-content',
+                    '.post-content', '.article-content', '.story-content'
+                ]
+                
+                for tag in content_selectors:
+                    content = soup.select(tag)
+                    if content:
+                        main_content = content[0]
+                        break
+            
+            # If we found a main content area, use that, otherwise use the whole page
+            if main_content:
+                text = main_content.get_text(separator='\n')
+            else:
+                # Try to exclude common non-content areas
+                for element in soup.select('.ad, .ads, .advertisement, .sidebar, .comments, .related, .recommended'):
+                    element.extract()
+                text = soup.get_text(separator='\n')
+            
+            # Process the text
+            lines = (line.strip() for line in text.splitlines())
+            chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
+            text = '\n'.join(chunk for chunk in chunks if chunk)
+            
+            # Check if we got enough content
+            if len(text) < 500:
+                logger.warning(f"Content from {url} seems too short ({len(text)} chars), might be incomplete")
+                # Try with headless browser immediately if content is too short
+                logger.info(f"Content too short, trying with headless browser for {url}")
+                return _fetch_with_browser(url)
+            
+            # Check if the content is suitable for LLM processing
+            if not is_content_suitable_for_llm(text, url):
+                logger.warning(f"Content from {url} doesn't appear to be suitable for LLM processing, trying browser fetch")
+                return _fetch_with_browser(url)
+            
+            # Limit text length to avoid overwhelming Gemini
+            return text[:15000] + "..." if len(text) > 15000 else text
+            
+        except requests.exceptions.HTTPError as e:
+            logger.error(f"HTTP error fetching {url}: {str(e)}")
+            if e.response.status_code in [403, 429]:
+                logger.warning(f"Access denied (status {e.response.status_code}), might be rate limited or blocked")
+                # Try with headless browser immediately if we get a 403 or 429
+                logger.info(f"Access denied, trying with headless browser for {url}")
+                return _fetch_with_browser(url)
+            if attempt < max_retries - 1:
+                # Add jitter to backoff
+                jitter = random.uniform(0.8, 1.2)
+                time.sleep(retry_delay * (attempt + 1) * jitter)  # Exponential backoff with jitter
+            else:
+                # On last retry, try browser method
+                logger.info(f"Multiple HTTP errors, trying with headless browser for {url}")
+                return _fetch_with_browser(url)
+        except requests.exceptions.ConnectionError:
+            logger.error(f"Connection error fetching {url}")
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay * (attempt + 1) * random.uniform(0.8, 1.2))
+            else:
+                # On last retry, try browser method
+                logger.info(f"Connection errors, trying with headless browser for {url}")
+                return _fetch_with_browser(url)
+        except requests.exceptions.Timeout:
+            logger.error(f"Timeout fetching {url}")
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay * (attempt + 1) * random.uniform(0.8, 1.2))
+            else:
+                # On last retry, try browser method
+                logger.info(f"Timeout errors, trying with headless browser for {url}")
+                return _fetch_with_browser(url)
+        except Exception as e:
+            logger.error(f"Error fetching {url}: {str(e)}")
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay * (attempt + 1) * random.uniform(0.8, 1.2))
+            else:
+                # On last retry, try browser method
+                logger.info(f"Multiple errors, trying with headless browser for {url}")
+                return _fetch_with_browser(url)
+
+@shared_task
+def cleanup_old_news_items():
+    """Clean up old news items to prevent database bloat"""
+    from .models import NewsItem
+    from django.utils import timezone
+    from datetime import timedelta
+    
+    # Keep news items from the last 30 days
+    cutoff_date = timezone.now() - timedelta(days=30)
+    
+    # Get all news items older than the cutoff date, but ensure we keep at least 100 most recent items per section
+    old_items = NewsItem.objects.filter(created_at__lt=cutoff_date)
+    
+    # Get a list of all user_profile and news_section combinations
+    from django.db.models import Count
+    section_counts = NewsItem.objects.values('user_profile', 'news_section').annotate(
+        count=Count('id')
+    )
+    
+    # For each combination, ensure we keep at least 100 items
+    protected_ids = []
+    
+    for section_data in section_counts:
+        user_profile_id = section_data['user_profile']
+        news_section_id = section_data['news_section']
+        
+        # Get the IDs of the most recent 100 items for this section
+        recent_ids = NewsItem.objects.filter(
+            user_profile_id=user_profile_id,
+            news_section_id=news_section_id
+        ).order_by('-created_at')[:100].values_list('id', flat=True)
+        
+        protected_ids.extend(list(recent_ids))
+    
+    # Exclude the protected IDs from deletion
+    items_to_delete = old_items.exclude(id__in=protected_ids)
+    delete_count = items_to_delete.count()
+    
+    if delete_count > 0:
+        deleted, _ = items_to_delete.delete()
+        logger.info(f'Cleaned up {deleted} old news items')
+    else:
+        logger.info('No old news items to clean up')
+    
+    return delete_count
+
+@shared_task
+def check_scheduled_emails():
+    """Check if any emails need to be sent based on time slots"""
+    from .models import TimeSlot
+    from datetime import timedelta
+    
+    # Get current UTC time
+    current_time = timezone.now().astimezone(timezone.utc)
+    current_time_only = current_time.time()
+    
+    # Calculate time 5 minutes ago
+    five_mins_ago = current_time - timedelta(minutes=5)
+    five_mins_ago_time = five_mins_ago.time()
+    
+    # Log the current time for debugging
+    logger.info(f"Checking for scheduled emails at UTC time {current_time_only.strftime('%H:%M')}")
+    logger.info(f"Looking for time slots between {five_mins_ago_time.strftime('%H:%M')} and {current_time_only.strftime('%H:%M')}")
+    
+    # Find time slots in the last 5 minutes
+    # Handle the case where the time range crosses midnight
+    if five_mins_ago_time > current_time_only:
+        # Time range crosses midnight
+        time_slots = TimeSlot.objects.filter(
+            time__gte=five_mins_ago_time
+        ) | TimeSlot.objects.filter(
+            time__lte=current_time_only
+        )
+    else:
+        # Normal time range within the same day
+        time_slots = TimeSlot.objects.filter(
+            time__gte=five_mins_ago_time,
+            time__lte=current_time_only
+        )
+    
+    # Log the number of matching time slots
+    logger.info(f"Found {time_slots.count()} matching time slots")
+    
+    # Send emails for each user with a matching time slot
+    for slot in time_slots:
+        logger.info(f"Scheduling email for user {slot.user_profile.user.username} at {slot.time}")
+        send_news_update.delay(slot.user_profile.id)
