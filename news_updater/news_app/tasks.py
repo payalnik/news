@@ -17,6 +17,7 @@ from .browser_fetch import _fetch_with_browser
 logger = logging.getLogger(__name__)
 fetch_logger = logging.getLogger('news_app.fetch')
 gemini_logger = logging.getLogger('news_app.gemini')
+preprocess_logger = logging.getLogger('news_app.preprocess')
 
 # Try to import google.generativeai, but don't fail if it's not available
 try:
@@ -25,6 +26,79 @@ try:
 except ImportError:
     GEMINI_AVAILABLE = False
     logging.warning("google.generativeai module not available. Some features will be disabled.")
+
+def preprocess_content_with_llm(content, url):
+    """
+    Use LLM to preprocess the scraped content, removing irrelevant information
+    and keeping only news items and links.
+    
+    Args:
+        content: The raw scraped content from the website
+        url: The source URL (for logging)
+        
+    Returns:
+        str: Preprocessed content with only relevant news information
+    """
+    preprocess_logger.info(f"Starting LLM preprocessing for content from {url}")
+    
+    if not GEMINI_AVAILABLE:
+        preprocess_logger.warning(f"Gemini not available for preprocessing content from {url}")
+        return content
+    
+    try:
+        # Configure Gemini
+        genai.configure(api_key=settings.GOOGLE_API_KEY)
+        
+        # Create preprocessing prompt
+        prompt = f"""
+        I need you to clean and extract only the relevant news content from this webpage.
+        
+        Source URL: {url}
+        
+        INSTRUCTIONS:
+        1. Remove all advertisements, navigation menus, footers, sidebars, and other non-content elements
+        2. Keep ONLY actual news content: headlines, article text, and relevant links to news stories
+        3. Preserve the structure of news items (headlines followed by content)
+        4. Remove any user comments, social media widgets, or promotional content
+        5. Keep image captions if they provide important context
+        6. Maintain links to source articles or related news
+        7. Format the output as plain text with clear separation between different news items
+        8. If there are multiple news stories, separate them with "---" on a new line
+        9. Remove utm_* variables from links
+        10. If there are no news items, just leave 'No news items found'
+        
+        Here is the raw content from the webpage:
+        
+        {content[:15000]}  # Limit content length to avoid token limits
+        
+        Return ONLY the cleaned, relevant news content. Do not add any commentary, summaries, or additional text.
+        """
+        
+        preprocess_logger.info(f"Sending preprocessing request to Gemini for {url}")
+        
+        # Use Gemini Flash model for preprocessing (faster and cheaper than Pro)
+        model = genai.GenerativeModel('gemini-2.0-flash')
+        response = model.generate_content(prompt)
+        
+        preprocessed_content = response.text
+        
+        # Log the results
+        original_length = len(content)
+        preprocessed_length = len(preprocessed_content)
+        reduction_percentage = ((original_length - preprocessed_length) / original_length) * 100 if original_length > 0 else 0
+        
+        preprocess_logger.info(f"Preprocessing complete for {url}")
+        preprocess_logger.info(f"Original content length: {original_length} chars")
+        preprocess_logger.info(f"Preprocessed content length: {preprocessed_length} chars")
+        preprocess_logger.info(f"Content reduction: {reduction_percentage:.1f}%")
+        preprocess_logger.info(f"Preprocessed content preview (first 500 chars): {preprocessed_content[:500]}...")
+        
+        return preprocessed_content
+        
+    except Exception as e:
+        preprocess_logger.error(f"Error preprocessing content with LLM: {str(e)}")
+        # Fall back to original content if preprocessing fails
+        return content
 
 def is_content_suitable_for_llm(text, url):
     """
@@ -163,8 +237,14 @@ def send_news_update(user_profile_id):
             
             for url in source_urls:
                 try:
-                    content = fetch_url_content(url)
-                    sources_content.append(f"Content from {url}:\n{content}")
+                    # Fetch the raw content
+                    raw_content = fetch_url_content(url)
+                    
+                    # Preprocess the content with LLM to remove irrelevant information
+                    preprocessed_content = preprocess_content_with_llm(raw_content, url)
+                    
+                    # Add the preprocessed content to the sources
+                    sources_content.append(f"Content from {url}:\n{preprocessed_content}")
                 except Exception as e:
                     logger.error(f"Error fetching content from {url}: {str(e)}")
                     sources_content.append(f"Error fetching content from {url}")
