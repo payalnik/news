@@ -11,6 +11,7 @@ import random
 import time
 import json
 import re
+from .browser_fetch import _fetch_with_browser
 
 # Create specialized loggers
 logger = logging.getLogger(__name__)
@@ -768,15 +769,16 @@ def fetch_with_jina(url):
         fetch_logger.info(f"Falling back to other fetching methods for {url}")
         return None
 
-def fetch_url_content(url, use_jina=True):
+def fetch_url_content(url, use_browser=None, use_jina=True):
     """
     Fetch and extract text content from a URL with adaptive fetching methods
     
     Args:
         url: The URL to fetch
+        use_browser: None (auto-detect), True (force browser), False (force requests)
         use_jina: True (try Jina first), False (skip Jina)
     """
-    fetch_logger.info(f"Starting fetch for URL: {url}, use_jina={use_jina}")
+    fetch_logger.info(f"Starting fetch for URL: {url}, use_browser={use_browser}, use_jina={use_jina}")
     
     # Try Jina first if enabled
     if use_jina:
@@ -796,6 +798,18 @@ def fetch_url_content(url, use_jina=True):
                 fetch_logger.info(f"Jina content too short or empty, trying other methods")
         except Exception as e:
             fetch_logger.error(f"Error using Jina Reader: {str(e)}")
+    
+    # Special handling for known problematic sites
+    domain = url.split('//')[1].split('/')[0]
+    problematic_sites = ['mv-voice.com', 'paloaltoonline.com', 'almanacnews.com']
+    
+    if any(site in domain for site in problematic_sites):
+        fetch_logger.info(f"Known problematic site detected: {domain}. Using browser fetch directly.")
+        content = _fetch_with_browser(url)
+        fetch_logger.info(f"Browser fetch for {url} completed, content length: {len(content)} chars")
+        # Log the first 500 chars of content for debugging
+        fetch_logger.info(f"Content preview (first 500 chars): {content[:500]}...")
+        return content
     # Modern, up-to-date user agents
     user_agents = [
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
@@ -805,6 +819,22 @@ def fetch_url_content(url, use_jina=True):
         'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Edge/121.0.0.0 Safari/537.36'
     ]
+    
+    # If browser use is explicitly requested, use it
+    if use_browser is True:
+        try:
+            return _fetch_with_browser(url)
+        except Exception as e:
+            logger.error(f"Browser-based fetching failed for {url}: {str(e)}")
+            logger.info(f"Falling back to requests-based fetching for {url}")
+            # Fall back to requests-based fetching
+    
+    # If browser use is explicitly forbidden, don't use it
+    if use_browser is False:
+        # Skip browser and go straight to requests
+        pass
+    
+    # Otherwise, try requests first and fall back to browser if needed
     
     # More realistic browser headers
     chosen_ua = random.choice(user_agents)
@@ -880,14 +910,19 @@ def fetch_url_content(url, use_jina=True):
             # Check if we got a valid response
             if not response.text or len(response.text) < 100:
                 fetch_logger.warning(f"Response too short from {url}, likely blocked or invalid")
-                # Response too short, return what we have
-                return response.text
+                # Try with headless browser immediately if content is too short
+                fetch_logger.info(f"Response too short, trying with headless browser for {url}")
+                content = _fetch_with_browser(url)
+                fetch_logger.info(f"Browser fetch for {url} completed, content length: {len(content)} chars")
+                fetch_logger.info(f"Content preview (first 500 chars): {content[:500]}...")
+                return content
             
             # Check for common anti-bot patterns
             if "captcha" in response.text.lower() or "cloudflare" in response.text.lower():
                 logger.warning(f"Possible anti-bot protection detected on {url}")
-                # Anti-bot protection detected, return what we have
-                return response.text
+                # Try with headless browser immediately if anti-bot protection is detected
+                logger.info(f"Anti-bot protection detected, trying with headless browser for {url}")
+                return _fetch_with_browser(url)
             
             soup = BeautifulSoup(response.text, 'html.parser')
             
@@ -956,8 +991,8 @@ def fetch_url_content(url, use_jina=True):
             
             # Check if the content is suitable for LLM processing
             if not is_content_suitable_for_llm(text, url):
-                logger.warning(f"Content from {url} doesn't appear to be suitable for LLM processing")
-                # Return what we have even if it's not ideal
+                logger.warning(f"Content from {url} doesn't appear to be suitable for LLM processing, trying browser fetch")
+                return _fetch_with_browser(url)
             
             # Limit text length to avoid overwhelming Gemini
             return text[:15000] + "..." if len(text) > 15000 else text
@@ -966,36 +1001,41 @@ def fetch_url_content(url, use_jina=True):
             logger.error(f"HTTP error fetching {url}: {str(e)}")
             if e.response.status_code in [403, 429]:
                 logger.warning(f"Access denied (status {e.response.status_code}), might be rate limited or blocked")
-                logger.warning(f"Access denied (status {e.response.status_code}), might be rate limited or blocked")
-                return f"Error: Access denied (status {e.response.status_code})"
+                # Try with headless browser immediately if we get a 403 or 429
+                logger.info(f"Access denied, trying with headless browser for {url}")
+                return _fetch_with_browser(url)
             if attempt < max_retries - 1:
                 # Add jitter to backoff
                 jitter = random.uniform(0.8, 1.2)
                 time.sleep(retry_delay * (attempt + 1) * jitter)  # Exponential backoff with jitter
             else:
-                logger.error(f"Multiple HTTP errors fetching {url}")
-                return f"Error: Multiple HTTP errors fetching {url}"
+                # On last retry, try browser method
+                logger.info(f"Multiple HTTP errors, trying with headless browser for {url}")
+                return _fetch_with_browser(url)
         except requests.exceptions.ConnectionError:
             logger.error(f"Connection error fetching {url}")
             if attempt < max_retries - 1:
                 time.sleep(retry_delay * (attempt + 1) * random.uniform(0.8, 1.2))
             else:
-                logger.error(f"Connection errors fetching {url}")
-                return f"Error: Connection errors fetching {url}"
+                # On last retry, try browser method
+                logger.info(f"Connection errors, trying with headless browser for {url}")
+                return _fetch_with_browser(url)
         except requests.exceptions.Timeout:
             logger.error(f"Timeout fetching {url}")
             if attempt < max_retries - 1:
                 time.sleep(retry_delay * (attempt + 1) * random.uniform(0.8, 1.2))
             else:
-                logger.error(f"Timeout errors fetching {url}")
-                return f"Error: Timeout errors fetching {url}"
+                # On last retry, try browser method
+                logger.info(f"Timeout errors, trying with headless browser for {url}")
+                return _fetch_with_browser(url)
         except Exception as e:
             logger.error(f"Error fetching {url}: {str(e)}")
             if attempt < max_retries - 1:
                 time.sleep(retry_delay * (attempt + 1) * random.uniform(0.8, 1.2))
             else:
-                logger.error(f"Multiple errors fetching {url}")
-                return f"Error: Multiple errors fetching {url}"
+                # On last retry, try browser method
+                logger.info(f"Multiple errors, trying with headless browser for {url}")
+                return _fetch_with_browser(url)
 
 @shared_task
 def cleanup_old_news_items():
