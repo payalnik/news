@@ -65,10 +65,11 @@ def preprocess_content_with_llm(content, url):
         8. If there are multiple news stories, separate them with "---" on a new line
         9. Remove utm_* variables from links
         10. If there are no news items, just leave 'No news items found'
+        11. Remove duplicate news items if present (if the news is the same but the link differs, keep the link pointing to a specific story rather than the index page)
         
         Here is the raw content from the webpage:
         
-        {content[:15000]}  # Limit content length to avoid token limits
+        {content[:30000]}  # Limit content length to avoid token limits
         
         Return ONLY the cleaned, relevant news content. Do not add any commentary, summaries, or additional text.
         """
@@ -269,10 +270,14 @@ def send_news_update(user_profile_id):
             
             {joined_sources}
             
-            User's instructions for summarizing this section:
+            User's instructions for summarizing this section. Please follow them carefully, they take priority over any other guidelines:
             {section.prompt}
+
+            -----------------
             
             {previous_news_items_text}
+
+            -----------------
             
             Please provide a concise, well-organized summary of the most important news from these sources.
             
