@@ -760,7 +760,7 @@ def fetch_with_jina(url):
         fetch_logger.info(f"Content preview (first 500 chars): {text[:500]}...")
         
         # Limit text length to avoid overwhelming Gemini
-        return text[:15000] + "..." if len(text) > 15000 else text
+        return text[:60000] + "..." if len(text) > 60000 else text
         
     except Exception as e:
         elapsed_time = time.time() - start_time
