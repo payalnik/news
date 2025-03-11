@@ -141,6 +141,12 @@ LOGIN_REDIRECT_URL = 'dashboard'
 LOGIN_URL = 'login'
 LOGOUT_REDIRECT_URL = 'home'
 
+# Custom authentication backends
+AUTHENTICATION_BACKENDS = [
+    'news_app.backends.EmailOrUsernameModelBackend',
+    'django.contrib.auth.backends.ModelBackend',
+]
+
 # Logging configuration
 LOGGING = {
     'version': 1,
