@@ -29,7 +29,7 @@
                                     <h5 class="mb-1">{{ section.name }}</h5>
                                     <small>Created: {{ section.created_at|date:"M d, Y" }}</small>
                                 </div>
-                                <p class="mb-1"><strong>Sources:</strong> {{ section.sources }}</p>
+                                <p class="mb-1" style="white-space: pre-line;"><strong>Sources:</strong> {{ section.sources }}</p>
                                 <p class="mb-1"><strong>Instructions:</strong> {{ section.prompt }}</p>
                                 <div class="mt-2">
                                     <a href="{% url 'edit_news_section' section.id %}" class="btn btn-sm btn-outline-primary">Edit</a>
