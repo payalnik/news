@@ -1,6 +1,7 @@
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
-from django.contrib.auth import login
+from django.contrib.auth import login, authenticate
+from django.contrib.auth.backends import ModelBackend
 from django.contrib import messages
 from django.core.mail import send_mail
 from django.conf import settings
@@ -35,7 +36,8 @@ def signup(request):
             recipient_list = [user.email]
             send_mail(subject, message, from_email, recipient_list)
             
-            login(request, user)
+            # Specify the backend when logging in the user
+            login(request, user, backend='django.contrib.auth.backends.ModelBackend')
             return redirect('verify_email')
     else:
         form = SignUpForm()
