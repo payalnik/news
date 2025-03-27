@@ -38,6 +38,7 @@ urlpatterns = [
     path('add-news-section/', views.add_news_section, name='add_news_section'),
     path('edit-news-section/<int:section_id>/', views.edit_news_section, name='edit_news_section'),
     path('delete-news-section/<int:section_id>/', views.delete_news_section, name='delete_news_section'),
+    path('update-section-order/', views.update_section_order, name='update_section_order'), # Added URL for reordering
     path('update-time-slots/', views.update_time_slots, name='update_time_slots'),
     path('send-now/', views.send_now, name='send_now'),
     path('news-history/', views.news_history, name='news_history'),

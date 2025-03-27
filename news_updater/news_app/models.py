@@ -16,8 +16,12 @@ class NewsSection(models.Model):
     name = models.CharField(max_length=100)
     sources = models.TextField(help_text="Enter URLs separated by commas, newlines, or spaces")
     prompt = models.TextField(help_text="Instructions for prioritizing and summarizing news")
+    order = models.PositiveIntegerField(default=0, help_text="Order in which the section appears")
     created_at = models.DateTimeField(auto_now_add=True)
-    
+
+    class Meta:
+        ordering = ['order']
+
     def __str__(self):
         return self.name
     
