@@ -9,6 +9,9 @@ from django.utils import timezone
 from datetime import datetime
 import logging
 import json
+from django.http import JsonResponse
+from django.views.decorators.http import require_POST
+from django.db import transaction
 
 from .models import UserProfile, NewsSection, TimeSlot, VerificationCode, NewsItem
 from django.core.paginator import Paginator
@@ -160,6 +163,45 @@ def dashboard(request):
         'news_sections': news_sections,
         'time_slot_form': time_slot_form,
     })
+
+@login_required
+@require_POST # Ensure this view only accepts POST requests
+@transaction.atomic # Ensure database operations are atomic
+def update_section_order(request):
+    user_profile = request.user.profile
+    try:
+        data = json.loads(request.body)
+        section_ids = data.get('order', [])
+        
+        # Validate that all IDs are integers
+        try:
+            section_ids = [int(id_str) for id_str in section_ids]
+        except ValueError:
+            return JsonResponse({'status': 'error', 'message': 'Invalid section IDs provided.'}, status=400)
+
+        # Fetch the sections belonging to the user to ensure ownership and existence
+        sections = NewsSection.objects.filter(user_profile=user_profile, id__in=section_ids)
+        sections_map = {section.id: section for section in sections}
+
+        # Check if all provided IDs correspond to valid sections for this user
+        if len(sections_map) != len(section_ids):
+             return JsonResponse({'status': 'error', 'message': 'One or more section IDs are invalid or do not belong to the user.'}, status=400)
+
+        # Update the order based on the received list
+        for index, section_id in enumerate(section_ids):
+            section = sections_map[section_id]
+            section.order = index
+            section.save(update_fields=['order'])
+            
+        return JsonResponse({'status': 'success', 'message': 'Section order updated successfully.'})
+
+    except json.JSONDecodeError:
+        return JsonResponse({'status': 'error', 'message': 'Invalid JSON data.'}, status=400)
+    except Exception as e:
+        # Log the error for debugging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Error updating section order for user {user_profile.user.username}: {str(e)}")
+        return JsonResponse({'status': 'error', 'message': 'An unexpected error occurred.'}, status=500)
 
 @login_required
 def add_news_section(request):
