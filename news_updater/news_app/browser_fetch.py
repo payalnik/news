@@ -186,7 +186,7 @@ def _fetch_with_browser(url):
                             # Navigate to the URL with a timeout
                             logger.info(f"Navigating to {url}")
                             fetch_logger.info(f"Playwright: Navigating to {url}")
-                            page.goto(url, timeout=30000)  # 30 seconds timeout
+                            page.goto(url, timeout=15000)  # 30 seconds timeout
                             
                             # Wait for the page to load
                             logger.info("Waiting for page to load")
