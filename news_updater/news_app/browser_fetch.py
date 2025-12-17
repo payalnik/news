@@ -24,6 +24,22 @@ USER_AGENTS = [
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Edge/121.0.0.0 Safari/537.36'
 ]
 
+def log_fetch_attempt(url, method, status, duration, content_length=0, error=None):
+    """Log the fetch attempt to the database"""
+    try:
+        from news_app.models import FetchLog
+        FetchLog.objects.create(
+            url=url,
+            method=method,
+            status=status,
+            duration_seconds=duration,
+            content_length=content_length,
+            error_message=error
+        )
+    except Exception as e:
+        # Don't fail the fetch if logging fails
+        fetch_logger.error(f"Failed to log fetch attempt: {e}")
+
 def get_random_user_agent():
     return random.choice(USER_AGENTS)
 
@@ -183,6 +199,7 @@ def process_html_content(html_content, url):
 def fetch_with_jina(url):
     """Fetch URL content using Jina Reader API"""
     fetch_logger.info(f"Starting Jina-based fetch for URL: {url}")
+    start_time = time.time()
     try:
         jina_url = f"https://r.jina.ai/{url}"
         headers = get_headers(url)
@@ -199,13 +216,18 @@ def fetch_with_jina(url):
         if len(text) > MAX_CONTENT_LENGTH:
             text = text[:MAX_CONTENT_LENGTH] + "..."
             
+        duration = time.time() - start_time
+        log_fetch_attempt(url, 'Jina', 'SUCCESS', duration, len(text))
         return text
     except Exception as e:
+        duration = time.time() - start_time
         fetch_logger.warning(f"Jina fetch failed for {url}: {str(e)}")
+        log_fetch_attempt(url, 'Jina', 'FAILURE', duration, 0, str(e))
         return None
 
 def fetch_with_playwright(url):
     """Fetch using Playwright"""
+    start_time = time.time()
     try:
         from playwright.sync_api import sync_playwright
         
@@ -236,19 +258,27 @@ def fetch_with_playwright(url):
                 
                 content = page.content()
                 logger.info("Successfully fetched with Playwright")
+                
+                duration = time.time() - start_time
+                log_fetch_attempt(url, 'Playwright', 'SUCCESS', duration, len(content) if content else 0)
                 return content
             finally:
                 browser.close()
                 
     except ImportError:
+        duration = time.time() - start_time
         logger.warning("Playwright not installed")
+        log_fetch_attempt(url, 'Playwright', 'SKIPPED', duration, 0, "Playwright not installed")
         return None
     except Exception as e:
+        duration = time.time() - start_time
         logger.warning(f"Playwright fetch failed: {str(e)}")
+        log_fetch_attempt(url, 'Playwright', 'FAILURE', duration, 0, str(e))
         return None
 
 def fetch_with_selenium(url):
     """Fetch using Selenium"""
+    start_time = time.time()
     try:
         from selenium import webdriver
         from selenium.webdriver.chrome.options import Options
@@ -281,6 +311,7 @@ def fetch_with_selenium(url):
                 
         if not driver:
             logger.warning("Could not initialize Selenium driver")
+            log_fetch_attempt(url, 'Selenium', 'SKIPPED', time.time() - start_time, 0, "Driver not initialized")
             return None
 
         try:
@@ -299,7 +330,10 @@ def fetch_with_selenium(url):
             driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
             time.sleep(2)
             
-            return driver.page_source
+            content = driver.page_source
+            duration = time.time() - start_time
+            log_fetch_attempt(url, 'Selenium', 'SUCCESS', duration, len(content) if content else 0)
+            return content
         finally:
             try:
                 driver.quit()
@@ -307,14 +341,19 @@ def fetch_with_selenium(url):
                 pass
             
     except ImportError:
+        duration = time.time() - start_time
         logger.warning("Selenium not installed")
+        log_fetch_attempt(url, 'Selenium', 'SKIPPED', duration, 0, "Selenium not installed")
         return None
     except Exception as e:
+        duration = time.time() - start_time
         logger.warning(f"Selenium fetch failed: {str(e)}")
+        log_fetch_attempt(url, 'Selenium', 'FAILURE', duration, 0, str(e))
         return None
 
 def fetch_with_requests(url):
     """Fallback fetch using requests with realistic session"""
+    start_time = time.time()
     try:
         logger.info("Attempting fetch with Requests")
         session = requests.Session()
@@ -329,9 +368,14 @@ def fetch_with_requests(url):
             
         response = session.get(url, headers=headers, timeout=TIMEOUT)
         response.raise_for_status()
+        
+        duration = time.time() - start_time
+        log_fetch_attempt(url, 'Requests', 'SUCCESS', duration, len(response.text))
         return response.text
     except Exception as e:
+        duration = time.time() - start_time
         logger.warning(f"Requests fetch failed: {str(e)}")
+        log_fetch_attempt(url, 'Requests', 'FAILURE', duration, 0, str(e))
         return None
 
 def fetch_content(url, use_browser=None, use_jina=True):
