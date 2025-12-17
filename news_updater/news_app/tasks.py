@@ -11,7 +11,7 @@ import random
 import time
 import json
 import re
-from .browser_fetch import fetch_content
+from .browser_fetch import _fetch_with_browser
 
 # Create specialized loggers
 logger = logging.getLogger(__name__)
@@ -101,6 +101,85 @@ def preprocess_content_with_llm(content, url):
         # Fall back to original content if preprocessing fails
         return content
 
+def is_content_suitable_for_llm(text, url):
+    """
+    Check if the content is suitable for LLM processing.
+    
+    Args:
+        text: The extracted text content
+        url: The source URL (for logging)
+        
+    Returns:
+        bool: True if content appears suitable, False if it needs re-fetching
+    """
+    # Skip empty or very short content
+    if not text or len(text) < 200:
+        logger.warning(f"Content from {url} is too short ({len(text) if text else 0} chars)")
+        return False
+    
+    # Check for common indicators of problematic content
+    problematic_indicators = [
+        # HTML/JavaScript fragments that weren't properly cleaned
+        "<html", "<body", "<script", "<style", "function(", "var ", "const ", "let ", "document.getElementById",
+        # Indicators of cookie/paywall notices
+        "cookie policy", "accept cookies", "cookie settings", "privacy policy", "terms of service",
+        "subscribe now", "subscription required", "create an account", "sign in to continue",
+        # Indicators of anti-bot measures
+        "captcha", "robot", "automated access", "detection", "cloudflare",
+        # Indicators of error pages
+        "404 not found", "403 forbidden", "access denied", "page not available",
+        # Indicators of content not loading properly
+        "loading", "please wait", "enable javascript", "browser not supported"
+    ]
+    
+    # Count problematic indicators
+    indicator_count = 0
+    for indicator in problematic_indicators:
+        if indicator in text.lower():
+            indicator_count += 1
+            logger.debug(f"Found problematic indicator '{indicator}' in content from {url}")
+    
+    # If too many problematic indicators, consider content unsuitable
+    if indicator_count >= 3:
+        logger.warning(f"Content from {url} has {indicator_count} problematic indicators")
+        return False
+    
+    # Check for coherent paragraphs - news articles typically have several paragraphs
+    paragraphs = [p for p in text.split('\n') if p.strip()]
+    meaningful_paragraphs = [p for p in paragraphs if len(p.split()) > 10]  # Paragraphs with >10 words
+    
+    if len(meaningful_paragraphs) < 3:
+        logger.warning(f"Content from {url} has only {len(meaningful_paragraphs)} meaningful paragraphs")
+        return False
+    
+    # Check for excessive repetition, which often indicates scraping issues
+    words = text.lower().split()
+    if len(words) > 100:
+        # Get the 20 most common words (excluding very common words)
+        from collections import Counter
+        common_words = ["the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "of", "for", "with", "by"]
+        word_counts = Counter([w for w in words if w not in common_words and len(w) > 3])
+        most_common = word_counts.most_common(20)
+        
+        # If any word appears with very high frequency, it might indicate repetitive content
+        for word, count in most_common:
+            frequency = count / len(words)
+            if frequency > 0.1 and count > 100:  # Word appears in >5% of text and >10 times
+                logger.warning(f"Content from {url} has suspicious repetition of '{word}' ({count} times, {frequency:.1%})")
+                return False
+    
+    # Check for domain-specific issues
+    domain = url.split('//')[1].split('/')[0]
+    
+    # MV Voice and related sites often have issues with content extraction
+    if any(site in domain for site in ['mv-voice.com', 'paloaltoonline.com', 'almanacnews.com']):
+        # For these sites, check for specific content patterns
+        if "article" not in text.lower() and "story" not in text.lower():
+            logger.warning(f"Content from {domain} doesn't appear to contain article text")
+            return False
+    
+    # If we've passed all checks, the content seems suitable
+    return True
 
 @shared_task
 def send_news_update(user_profile_id):
@@ -160,7 +239,7 @@ def send_news_update(user_profile_id):
             for url in source_urls:
                 try:
                     # Fetch the raw content
-                    raw_content = fetch_content(url)
+                    raw_content = fetch_url_content(url)
                     
                     # Preprocess the content with LLM to remove irrelevant information
                     preprocessed_content = preprocess_content_with_llm(raw_content, url)
@@ -631,6 +710,332 @@ def send_news_update(user_profile_id):
         logger.error(f"Error sending news update: {str(e)}")
         return False
 
+def fetch_with_jina(url):
+    """
+    Fetch URL content using Jina Reader API (r.jina.ai)
+    
+    Args:
+        url: The URL to fetch
+    """
+    fetch_logger.info(f"Starting Jina-based fetch for URL: {url}")
+    start_time = time.time()
+    
+    try:
+        # Construct the Jina Reader API URL
+        jina_url = f"https://r.jina.ai/{url}"
+        
+        # Set up headers to appear as a regular browser
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Referer': 'https://jina.ai/',
+            'DNT': '1',
+        }
+        
+        # Make the request to Jina Reader
+        fetch_logger.info(f"Sending request to Jina Reader for {url}")
+        response = requests.get(jina_url, headers=headers, timeout=30)
+        response.raise_for_status()
+        
+        # Process the response
+        content = response.text
+        
+        # Parse with BeautifulSoup to clean up the content
+        soup = BeautifulSoup(content, 'html.parser')
+        
+        # Remove script, style, and other non-content elements
+        for element in soup(["script", "style", "header", "footer", "nav", "aside"]):
+            element.extract()
+        
+        # Process the text
+        text = soup.get_text(separator='\n')
+        lines = (line.strip() for line in text.splitlines())
+        chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
+        text = '\n'.join(chunk for chunk in chunks if chunk)
+        
+        elapsed_time = time.time() - start_time
+        fetch_logger.info(f"Jina fetch completed in {elapsed_time:.2f} seconds")
+        fetch_logger.info(f"Jina fetch for {url} completed, content length: {len(text)} chars")
+        fetch_logger.info(f"Content preview (first 500 chars): {text[:500]}...")
+        
+        # Limit text length to avoid overwhelming Gemini
+        return text[:60000] + "..." if len(text) > 60000 else text
+        
+    except Exception as e:
+        elapsed_time = time.time() - start_time
+        fetch_logger.error(f"Jina fetch failed for {url}: {str(e)}")
+        # We'll let the function continue to try other methods
+        fetch_logger.info(f"Falling back to other fetching methods for {url}")
+        return None
+
+def fetch_url_content(url, use_browser=None, use_jina=True):
+    """
+    Fetch and extract text content from a URL with adaptive fetching methods
+    
+    Args:
+        url: The URL to fetch
+        use_browser: None (auto-detect), True (force browser), False (force requests)
+        use_jina: True (try Jina first), False (skip Jina)
+    """
+    fetch_logger.info(f"Starting fetch for URL: {url}, use_browser={use_browser}, use_jina={use_jina}")
+    
+    # Try Jina first if enabled
+    if use_jina:
+        try:
+            fetch_logger.info(f"Attempting to fetch {url} using Jina Reader")
+            jina_content = fetch_with_jina(url)
+            if jina_content and len(jina_content) > 500:
+                fetch_logger.info(f"Successfully fetched content with Jina Reader, length: {len(jina_content)} chars")
+                
+                # Check if the content is suitable for LLM processing
+                if is_content_suitable_for_llm(jina_content, url):
+                    fetch_logger.info(f"Jina content is suitable for LLM processing")
+                    return jina_content
+                else:
+                    fetch_logger.info(f"Jina content not suitable for LLM processing, trying other methods")
+            else:
+                fetch_logger.info(f"Jina content too short or empty, trying other methods")
+        except Exception as e:
+            fetch_logger.error(f"Error using Jina Reader: {str(e)}")
+    
+    # Special handling for known problematic sites
+    domain = url.split('//')[1].split('/')[0]
+    problematic_sites = ['mv-voice.com', 'paloaltoonline.com', 'almanacnews.com']
+    
+    if any(site in domain for site in problematic_sites):
+        fetch_logger.info(f"Known problematic site detected: {domain}. Using browser fetch directly.")
+        content = _fetch_with_browser(url)
+        fetch_logger.info(f"Browser fetch for {url} completed, content length: {len(content)} chars")
+        # Log the first 500 chars of content for debugging
+        fetch_logger.info(f"Content preview (first 500 chars): {content[:500]}...")
+        return content
+    # Modern, up-to-date user agents
+    user_agents = [
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:123.0) Gecko/20100101 Firefox/123.0',
+        'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Edge/121.0.0.0 Safari/537.36'
+    ]
+    
+    # If browser use is explicitly requested, use it
+    if use_browser is True:
+        try:
+            return _fetch_with_browser(url)
+        except Exception as e:
+            logger.error(f"Browser-based fetching failed for {url}: {str(e)}")
+            logger.info(f"Falling back to requests-based fetching for {url}")
+            # Fall back to requests-based fetching
+    
+    # If browser use is explicitly forbidden, don't use it
+    if use_browser is False:
+        # Skip browser and go straight to requests
+        pass
+    
+    # Otherwise, try requests first and fall back to browser if needed
+    
+    # More realistic browser headers
+    chosen_ua = random.choice(user_agents)
+    is_chrome = 'Chrome' in chosen_ua
+    is_firefox = 'Firefox' in chosen_ua
+    is_safari = 'Safari' in chosen_ua and 'Chrome' not in chosen_ua
+    
+    headers = {
+        'User-Agent': chosen_ua,
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Referer': 'https://www.google.com/search?q=' + '+'.join(url.split('//')[1].split('/')[0].split('.')),
+        'DNT': '1',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'cross-site',
+        'Sec-Fetch-User': '?1',
+        'Cache-Control': 'max-age=0',
+    }
+    
+    # Browser-specific headers
+    if is_chrome:
+        headers['sec-ch-ua'] = '"Google Chrome";v="121", "Not;A=Brand";v="8"'
+        headers['sec-ch-ua-mobile'] = '?0'
+        headers['sec-ch-ua-platform'] = '"Windows"' if 'Windows' in chosen_ua else '"macOS"'
+    
+    # Create a session to maintain cookies
+    session = requests.Session()
+    
+    # Set a realistic cookie
+    cookies = {
+        'visited': 'true',
+        'session_id': f"{random.randint(1000000, 9999999)}",
+        'consent': 'true',
+    }
+    
+    max_retries = 2  # Reduced from 3 to 2 to try browser sooner
+    retry_delay = 2  # seconds
+    
+    for attempt in range(max_retries):
+        try:
+            # Add jitter to appear more human-like
+            if attempt > 0:
+                jitter = random.uniform(0.5, 1.5)
+                time.sleep(retry_delay * (attempt + 1) * jitter)
+            
+            logger.info(f"Fetching content from {url} (attempt {attempt+1}/{max_retries})")
+            
+            # First visit the domain homepage to set cookies
+            if attempt == 0:
+                domain = url.split('//')[1].split('/')[0]
+                domain_url = f"https://{domain}"
+                if domain_url != url:
+                    try:
+                        logger.info(f"First visiting domain homepage: {domain_url}")
+                        session.get(domain_url, headers=headers, timeout=10, cookies=cookies)
+                        # Small delay to simulate human browsing
+                        time.sleep(random.uniform(1, 3))
+                    except Exception as e:
+                        logger.warning(f"Failed to visit domain homepage {domain_url}: {str(e)}")
+            
+            # Now fetch the actual URL
+            fetch_logger.info(f"Fetching URL with requests: {url}")
+            fetch_logger.info(f"Using headers: {headers}")
+            response = session.get(url, headers=headers, timeout=15, cookies=cookies)
+            response.raise_for_status()
+            
+            fetch_logger.info(f"Response received from {url}, status: {response.status_code}, content length: {len(response.text)} chars")
+            
+            # Check if we got a valid response
+            if not response.text or len(response.text) < 100:
+                fetch_logger.warning(f"Response too short from {url}, likely blocked or invalid")
+                # Try with headless browser immediately if content is too short
+                fetch_logger.info(f"Response too short, trying with headless browser for {url}")
+                content = _fetch_with_browser(url)
+                fetch_logger.info(f"Browser fetch for {url} completed, content length: {len(content)} chars")
+                fetch_logger.info(f"Content preview (first 500 chars): {content[:500]}...")
+                return content
+            
+            # Check for common anti-bot patterns
+            if "captcha" in response.text.lower() or "cloudflare" in response.text.lower():
+                logger.warning(f"Possible anti-bot protection detected on {url}")
+                # Try with headless browser immediately if anti-bot protection is detected
+                logger.info(f"Anti-bot protection detected, trying with headless browser for {url}")
+                return _fetch_with_browser(url)
+            
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            # Remove script, style, and other non-content elements
+            for element in soup(["script", "style", "header", "footer", "nav", "aside", "iframe", "noscript"]):
+                element.extract()
+            
+            # Try to find the main content area if possible
+            main_content = None
+            
+            # Site-specific selectors for problematic sites
+            site_specific_selectors = {
+                'mv-voice.com': ['.story', '.story-body', '.article-body', '.article-text'],
+                'sfchronicle.com': ['.article-body', '.article', '.story-body', '.paywall-article'],
+                'mercurynews.com': ['.article-body', '.entry-content', '.article', '.story-body']
+            }
+            
+            # Check if we're on a site with specific selectors
+            domain = url.split('//')[1].split('/')[0]
+            if any(site in domain for site in site_specific_selectors.keys()):
+                for site, selectors in site_specific_selectors.items():
+                    if site in domain:
+                        for selector in selectors:
+                            content = soup.select(selector)
+                            if content:
+                                main_content = content[0]
+                                logger.info(f"Found main content using site-specific selector {selector} for {site}")
+                                break
+                        if main_content:
+                            break
+            
+            # If no site-specific selector worked, try generic selectors
+            if not main_content:
+                content_selectors = [
+                    'main', 'article', '#content', '.content', '#main', '.main', '.article', '.post',
+                    '.story', '.entry', '[role="main"]', '.story-body', '.article-body', '.entry-content',
+                    '.post-content', '.article-content', '.story-content'
+                ]
+                
+                for tag in content_selectors:
+                    content = soup.select(tag)
+                    if content:
+                        main_content = content[0]
+                        break
+            
+            # If we found a main content area, use that, otherwise use the whole page
+            if main_content:
+                text = main_content.get_text(separator='\n')
+            else:
+                # Try to exclude common non-content areas
+                for element in soup.select('.ad, .ads, .advertisement, .sidebar, .comments, .related, .recommended'):
+                    element.extract()
+                text = soup.get_text(separator='\n')
+            
+            # Process the text
+            lines = (line.strip() for line in text.splitlines())
+            chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
+            text = '\n'.join(chunk for chunk in chunks if chunk)
+            
+            # Check if we got enough content
+            if len(text) < 500:
+                logger.warning(f"Content from {url} seems too short ({len(text)} chars), might be incomplete")
+                # Try with headless browser immediately if content is too short
+                logger.info(f"Content too short, trying with headless browser for {url}")
+                return _fetch_with_browser(url)
+            
+            # Check if the content is suitable for LLM processing
+            if not is_content_suitable_for_llm(text, url):
+                logger.warning(f"Content from {url} doesn't appear to be suitable for LLM processing, trying browser fetch")
+                return _fetch_with_browser(url)
+            
+            # Limit text length to avoid overwhelming Gemini
+            return text[:15000] + "..." if len(text) > 15000 else text
+            
+        except requests.exceptions.HTTPError as e:
+            logger.error(f"HTTP error fetching {url}: {str(e)}")
+            if e.response.status_code in [403, 429]:
+                logger.warning(f"Access denied (status {e.response.status_code}), might be rate limited or blocked")
+                # Try with headless browser immediately if we get a 403 or 429
+                logger.info(f"Access denied, trying with headless browser for {url}")
+                return _fetch_with_browser(url)
+            if attempt < max_retries - 1:
+                # Add jitter to backoff
+                jitter = random.uniform(0.8, 1.2)
+                time.sleep(retry_delay * (attempt + 1) * jitter)  # Exponential backoff with jitter
+            else:
+                # On last retry, try browser method
+                logger.info(f"Multiple HTTP errors, trying with headless browser for {url}")
+                return _fetch_with_browser(url)
+        except requests.exceptions.ConnectionError:
+            logger.error(f"Connection error fetching {url}")
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay * (attempt + 1) * random.uniform(0.8, 1.2))
+            else:
+                # On last retry, try browser method
+                logger.info(f"Connection errors, trying with headless browser for {url}")
+                return _fetch_with_browser(url)
+        except requests.exceptions.Timeout:
+            logger.error(f"Timeout fetching {url}")
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay * (attempt + 1) * random.uniform(0.8, 1.2))
+            else:
+                # On last retry, try browser method
+                logger.info(f"Timeout errors, trying with headless browser for {url}")
+                return _fetch_with_browser(url)
+        except Exception as e:
+            logger.error(f"Error fetching {url}: {str(e)}")
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay * (attempt + 1) * random.uniform(0.8, 1.2))
+            else:
+                # On last retry, try browser method
+                logger.info(f"Multiple errors, trying with headless browser for {url}")
+                return _fetch_with_browser(url)
 
 @shared_task
 def cleanup_old_news_items():
