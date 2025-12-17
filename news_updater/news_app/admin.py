@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import UserProfile, NewsSection, TimeSlot, VerificationCode, NewsItem
+from .models import UserProfile, NewsSection, TimeSlot, VerificationCode, NewsItem, FetchLog
 
 @admin.register(UserProfile)
 class UserProfileAdmin(admin.ModelAdmin):
@@ -30,3 +30,14 @@ class NewsItemAdmin(admin.ModelAdmin):
     list_filter = ('confidence', 'created_at', 'news_section')
     search_fields = ('headline', 'details', 'user_profile__user__username')
     date_hierarchy = 'created_at'
+
+@admin.register(FetchLog)
+class FetchLogAdmin(admin.ModelAdmin):
+    list_display = ('domain', 'method', 'status', 'duration_seconds', 'content_length', 'timestamp')
+    list_filter = ('status', 'method', 'timestamp', 'domain')
+    search_fields = ('url', 'domain', 'error_message')
+    date_hierarchy = 'timestamp'
+    readonly_fields = ('timestamp', 'domain', 'url', 'method', 'status', 'duration_seconds', 'content_length', 'error_message')
+    
+    def has_add_permission(self, request):
+        return False

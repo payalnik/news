@@ -1,48 +1,78 @@
 import logging
 import time
 import random
+import os
+import shutil
+import subprocess
+import requests
 from bs4 import BeautifulSoup
+from django.conf import settings
 
 # Create specialized loggers
 logger = logging.getLogger(__name__)
 fetch_logger = logging.getLogger('news_app.fetch')
 
-def _fetch_with_browser(url):
-    """Fetch URL content using a headless browser for JavaScript-heavy sites"""
-    fetch_logger.info(f"Starting browser-based fetch for URL: {url}")
+# Constants
+TIMEOUT = 30
+MAX_CONTENT_LENGTH = 60000  # Increased to match Jina limit
+USER_AGENTS = [
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:123.0) Gecko/20100101 Firefox/123.0',
+    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Edge/121.0.0.0 Safari/537.36'
+]
+
+def log_fetch_attempt(url, method, status, duration, content_length=0, error=None):
+    """Log the fetch attempt to the database"""
     try:
-        import selenium
-        from selenium import webdriver
-        from selenium.webdriver.chrome.options import Options
-        from selenium.webdriver.chrome.service import Service
-        from selenium.webdriver.common.by import By
-        from selenium.webdriver.support.ui import WebDriverWait
-        from selenium.webdriver.support import expected_conditions as EC
-        from selenium.common.exceptions import TimeoutException, ElementClickInterceptedException
-        # Do not use chromedriver_autoinstaller as it's causing version conflicts
-    except ImportError:
-        error_msg = "Selenium not installed. Install with: pip install selenium"
-        logger.error(error_msg)
-        fetch_logger.error(error_msg)
-        raise ImportError("Required packages not installed: selenium")
+        from news_app.models import FetchLog
+        FetchLog.objects.create(
+            url=url,
+            method=method,
+            status=status,
+            duration_seconds=duration,
+            content_length=content_length,
+            error_message=error
+        )
+    except Exception as e:
+        # Don't fail the fetch if logging fails
+        fetch_logger.error(f"Failed to log fetch attempt: {e}")
+
+def get_random_user_agent():
+    return random.choice(USER_AGENTS)
+
+def get_headers(url):
+    ua = get_random_user_agent()
+    is_chrome = 'Chrome' in ua
     
-    logger.info(f"Fetching {url} with headless browser")
-    fetch_logger.info(f"Initializing browser for URL: {url}")
+    headers = {
+        'User-Agent': ua,
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Referer': 'https://www.google.com/',
+        'DNT': '1',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'cross-site',
+        'Sec-Fetch-User': '?1',
+        'Cache-Control': 'max-age=0',
+    }
     
-    # Import necessary modules
-    import tempfile
-    import os
-    import shutil
-    import uuid
-    import time
-    import subprocess
-    import platform
-    
-    # Add detailed logging about the environment
-    logger.info(f"Platform: {platform.platform()}")
-    logger.info(f"Python version: {platform.python_version()}")
-    
-    # Kill any existing Chrome/Chromium processes before starting a new one
+    if is_chrome:
+        headers['sec-ch-ua'] = '"Google Chrome";v="121", "Not;A=Brand";v="8"'
+        headers['sec-ch-ua-mobile'] = '?0'
+        headers['sec-ch-ua-platform'] = '"Windows"' if 'Windows' in ua else '"macOS"'
+        
+    return headers
+
+def cleanup_browser_processes():
+    """Kill any existing Chrome/Chromium processes"""
+    # Only run this if we are actually about to use a browser, to avoid side effects
     logger.info("Cleaning up any existing browser processes...")
     try:
         if os.name == 'nt':  # Windows
@@ -51,506 +81,354 @@ def _fetch_with_browser(url):
         else:  # Unix/Linux/Mac
             subprocess.run(['pkill', '-f', 'chrome'], stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
             subprocess.run(['pkill', '-f', 'chromium'], stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
-            # Also try to remove any lock files in /tmp
+            
+            # Clean up /tmp
             try:
                 for f in os.listdir('/tmp'):
                     if 'chrome' in f.lower() or 'chromium' in f.lower():
+                        full_path = os.path.join('/tmp', f)
                         try:
-                            full_path = os.path.join('/tmp', f)
                             if os.path.isdir(full_path):
                                 shutil.rmtree(full_path, ignore_errors=True)
                             else:
                                 os.remove(full_path)
-                            logger.info(f"Removed Chrome/Chromium temporary file: {full_path}")
-                        except Exception as e:
-                            logger.warning(f"Failed to remove temporary file {f}: {str(e)}")
-            except Exception as e:
-                logger.warning(f"Failed to clean up /tmp directory: {str(e)}")
+                        except Exception:
+                            pass
+            except Exception:
+                pass
     except Exception as e:
         logger.warning(f"Failed to kill existing browser processes: {str(e)}")
+
+def is_content_suitable_for_llm(text, url):
+    """
+    Check if the content is suitable for LLM processing.
+    """
+    if not text or len(text) < 200:
+        logger.warning(f"Content from {url} is too short ({len(text) if text else 0} chars)")
+        return False
     
-    # Set up browser options - DO NOT use a user data directory by default
-    chrome_options = Options()
-    chrome_options.add_argument("--headless")
-    chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--disable-dev-shm-usage")
-    chrome_options.add_argument("--disable-gpu")
-    chrome_options.add_argument("--window-size=1920,1080")
-    # Explicitly disable user data directory and use incognito
-    chrome_options.add_argument("--incognito")
-    chrome_options.add_argument("--disable-extensions")
-    chrome_options.add_argument("--disable-plugins")
+    problematic_indicators = [
+        "<html", "<body", "<script", "<style", "function(", "var ", "const ", "let ", "document.getElementById",
+        "cookie policy", "accept cookies", "cookie settings", "privacy policy", "terms of service",
+        "subscribe now", "subscription required", "create an account", "sign in to continue",
+        "captcha", "robot", "automated access", "detection", "cloudflare",
+        "404 not found", "403 forbidden", "access denied", "page not available",
+        "loading", "please wait", "enable javascript", "browser not supported"
+    ]
     
-    # Add realistic browser fingerprint
-    chrome_options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36")
-    chrome_options.add_argument("--accept-lang=en-US,en;q=0.9")
-    chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+    indicator_count = 0
+    text_lower = text.lower()
+    for indicator in problematic_indicators:
+        if indicator in text_lower:
+            indicator_count += 1
+            
+    if indicator_count >= 3:
+        logger.warning(f"Content from {url} has {indicator_count} problematic indicators")
+        return False
     
-    # Disable images for faster loading
-    chrome_prefs = {
-        "profile.default_content_settings": {"images": 2},
-        "profile.managed_default_content_settings": {"images": 2}
+    paragraphs = [p for p in text.split('\n') if p.strip()]
+    meaningful_paragraphs = [p for p in paragraphs if len(p.split()) > 10]
+    
+    if len(meaningful_paragraphs) < 3:
+        logger.warning(f"Content from {url} has only {len(meaningful_paragraphs)} meaningful paragraphs")
+        return False
+        
+    return True
+
+def process_html_content(html_content, url):
+    """Process HTML content using BeautifulSoup"""
+    if not html_content:
+        return ""
+        
+    soup = BeautifulSoup(html_content, 'html.parser')
+    
+    # Remove non-content elements
+    for element in soup(["script", "style", "header", "footer", "nav", "aside", "noscript", "iframe", "svg"]):
+        element.extract()
+    
+    # Domain specific handling
+    domain = url.split('//')[1].split('/')[0]
+    main_content = None
+    
+    site_specific_selectors = {
+        'mv-voice.com': ['.story', '.story-body', '.article-body', '.article-text'],
+        'sfchronicle.com': ['.article-body', '.article', '.story-body', '.paywall-article'],
+        'mercurynews.com': ['.article-body', '.entry-content', '.article', '.story-body']
     }
-    chrome_options.add_experimental_option("prefs", chrome_prefs)
     
-    driver = None
-    try:
-        # Try to find Chromium binary first
-        logger.info("Trying to use Chromium by default...")
-        import subprocess
-        import shutil
-        import os
-        
-        # Common Chromium binary names and paths
-        chromium_commands = [
-            "chromium",
-            "chromium-browser"
-        ]
-        
-        chromium_paths = [
-            "/usr/bin/chromium",
-            "/usr/bin/chromium-browser",
-            "/usr/lib/chromium/chromium",
-            "/usr/lib/chromium-browser/chromium-browser",
-            "/snap/bin/chromium",
-            "/Applications/Chromium.app/Contents/MacOS/Chromium"  # macOS
-        ]
-        
-        # First try to get the actual binary path from the command
-        chromium_binary = None
-        for cmd in chromium_commands:
-            if shutil.which(cmd):
-                try:
-                    # Try to get the actual binary path
-                    result = subprocess.run(["which", cmd], capture_output=True, text=True)
-                    if result.returncode == 0:
-                        binary_path = result.stdout.strip()
-                        logger.info(f"Found Chromium command at: {binary_path}")
-                        
-                        # Check if it's a symlink and resolve it
-                        if os.path.islink(binary_path):
-                            real_path = os.path.realpath(binary_path)
-                            logger.info(f"Resolved symlink to: {real_path}")
-                            chromium_binary = real_path
-                        else:
-                            chromium_binary = binary_path
+    if any(site in domain for site in site_specific_selectors):
+        for site, selectors in site_specific_selectors.items():
+            if site in domain:
+                for selector in selectors:
+                    content = soup.select(selector)
+                    if content:
+                        main_content = content[0]
+                        logger.info(f"Found main content using site-specific selector {selector} for {site}")
                         break
-                except Exception as e:
-                    logger.warning(f"Error resolving Chromium command: {str(e)}")
-        
-        # If command resolution failed, try direct paths
-        if not chromium_binary:
-            for path in chromium_paths:
-                if os.path.exists(path) and os.access(path, os.X_OK):
-                    chromium_binary = path
-                    logger.info(f"Found Chromium binary at: {path}")
-                    break
-        
-        # Try to use Chromium first
-        # Try a completely different approach using a direct WebDriver instance
-        try:
-            # First, try to use Playwright instead of Selenium
-            try:
-                logger.info("Trying to use Playwright instead of Selenium...")
-                try:
-                    from playwright.sync_api import sync_playwright
-                    
-                    # Check if we're running in a headless environment
-                    is_headless = True
-                    
-                    # Add more detailed logging
-                    logger.info("Initializing Playwright with sync_playwright()")
-                    
-                    with sync_playwright() as p:
-                        try:
-                            # Try to launch Chromium browser with more options
-                            logger.info("Launching Chromium browser with Playwright")
-                            browser = p.chromium.launch(
-                                headless=is_headless,
-                                args=[
-                                    '--no-sandbox',
-                                    '--disable-dev-shm-usage',
-                                    '--disable-gpu',
-                                    '--disable-extensions',
-                                    '--disable-setuid-sandbox'
-                                ]
-                            )
-                            
-                            # Create a new page with a timeout
-                            logger.info("Creating new page")
-                            page = browser.new_page(
-                                viewport={"width": 1280, "height": 800},
-                                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36"
-                            )
-                            
-                            # Navigate to the URL with a timeout
-                            logger.info(f"Navigating to {url}")
-                            fetch_logger.info(f"Playwright: Navigating to {url}")
-                            page.goto(url, timeout=15000)  # 30 seconds timeout
-                            
-                            # Wait for the page to load
-                            logger.info("Waiting for page to load")
-                            fetch_logger.info("Playwright: Waiting for page to load (networkidle state)")
-                            page.wait_for_load_state("networkidle", timeout=30000)
-                            
-                            # Get the page content
-                            logger.info("Getting page content")
-                            fetch_logger.info("Playwright: Retrieving page content")
-                            content = page.content()
-                            fetch_logger.info(f"Playwright: Retrieved page content, length: {len(content)} chars")
-                            
-                            # Parse with BeautifulSoup
-                            soup = BeautifulSoup(content, 'html.parser')
-                            
-                            # Remove script, style, and other non-content elements
-                            for element in soup(["script", "style", "header", "footer", "nav", "aside"]):
-                                element.extract()
-                            
-                            # Process the text
-                            fetch_logger.info("Playwright: Processing extracted text content")
-                            text = soup.get_text(separator='\n')
-                            lines = (line.strip() for line in text.splitlines())
-                            chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
-                            text = '\n'.join(chunk for chunk in chunks if chunk)
-                            
-                            # Close the browser
-                            logger.info("Closing Playwright browser")
-                            browser.close()
-                            
-                            # Return the text
-                            logger.info("Successfully fetched content with Playwright")
-                            final_text = text[:15000] + "..." if len(text) > 15000 else text
-                            fetch_logger.info(f"Playwright: Finished processing content, final length: {len(final_text)} chars")
-                            fetch_logger.info(f"Playwright: Content preview (first 500 chars): {final_text[:500]}...")
-                            return final_text
-                        except Exception as inner_e:
-                            logger.error(f"Error during Playwright execution: {str(inner_e)}")
-                            # Close browser if it was created
-                            if 'browser' in locals():
-                                try:
-                                    browser.close()
-                                except:
-                                    pass
-                            raise inner_e
-                except ImportError as import_err:
-                    logger.warning(f"Playwright not installed: {str(import_err)}")
-                    logger.warning("Install with: pip install playwright")
-                    logger.warning("Then run: playwright install")
-                    raise import_err
-            except Exception as e:
-                logger.warning(f"Failed to use Playwright: {str(e)}")
-                logger.warning("If you're seeing missing dependencies, run: playwright install-deps")
-                logger.warning("Or use the install_playwright_dependencies.sh script")
-            
-            # If Playwright failed, try Selenium with a custom approach
-            logger.info("Trying custom Selenium approach...")
-            
-            # Try to use a specific version of ChromeDriver that matches Chrome
-            from selenium.webdriver.chrome.service import Service
-            
-            # Try to find a compatible chromedriver
-            chromedriver_path = None
-            
-            # Check if we have a compatible chromedriver in the project directory
-            compat_driver_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'chromedriver')
-            if os.path.exists(compat_driver_path) and os.access(compat_driver_path, os.X_OK):
-                chromedriver_path = compat_driver_path
-                logger.info(f"Found compatible chromedriver in project directory: {chromedriver_path}")
-            
-            # If we found a compatible chromedriver, use it
-            if chromedriver_path:
-                try:
-                    logger.info(f"Using chromedriver from: {chromedriver_path}")
-                    service = Service(executable_path=chromedriver_path)
-                    driver = webdriver.Chrome(service=service, options=chrome_options)
-                    logger.info("Successfully initialized Chrome with custom chromedriver")
-                except Exception as chrome_err:
-                    logger.error(f"Failed to initialize Chrome with custom chromedriver: {str(chrome_err)}")
-                    logger.info("The chromedriver version might not match the Chrome/Chromium version.")
-                    logger.info("Run the update_chromedriver.sh script to download a compatible version.")
-                    
-                    # Try with chromedriver-autoinstaller as a last resort
-                    try:
-                        logger.info("Trying with chromedriver-autoinstaller...")
-                        import chromedriver_autoinstaller
-                        chromedriver_autoinstaller.install()
-                        driver = webdriver.Chrome(options=chrome_options)
-                        logger.info("Successfully initialized Chrome with auto-installed chromedriver")
-                    except Exception as auto_err:
-                        logger.error(f"Failed to initialize Chrome with auto-installed chromedriver: {str(auto_err)}")
-                        raise auto_err
-            else:
-                # Try with system chromedriver
-                try:
-                    logger.info("Trying with system chromedriver...")
-                    driver = webdriver.Chrome(options=chrome_options)
-                    logger.info("Successfully initialized Chrome with system chromedriver")
-                except Exception as sys_err:
-                    logger.error(f"Failed to initialize Chrome with system chromedriver: {str(sys_err)}")
-                    
-                    # Try with chromedriver-autoinstaller as a last resort
-                    try:
-                        logger.info("Trying with chromedriver-autoinstaller...")
-                        import chromedriver_autoinstaller
-                        chromedriver_autoinstaller.install()
-                        driver = webdriver.Chrome(options=chrome_options)
-                        logger.info("Successfully initialized Chrome with auto-installed chromedriver")
-                    except Exception as auto_err:
-                        logger.error(f"Failed to initialize Chrome with auto-installed chromedriver: {str(auto_err)}")
-                        raise auto_err
-        except Exception as e:
-            logger.error(f"All browser initialization attempts failed: {str(e)}")
-            
-            # Try one last approach: use requests + BeautifulSoup without a browser
-            logger.info("Trying to fetch content with requests instead of a browser...")
-            try:
-                import requests
+            if main_content:
+                break
                 
-                headers = {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
-                    'Accept-Language': 'en-US,en;q=0.9',
-                }
-                
-                response = requests.get(url, headers=headers, timeout=30)
-                response.raise_for_status()
-                
-                # Parse with BeautifulSoup
-                soup = BeautifulSoup(response.text, 'html.parser')
-                
-                # Remove script, style, and other non-content elements
-                for element in soup(["script", "style", "header", "footer", "nav", "aside"]):
-                    element.extract()
-                
-                # Process the text
-                text = soup.get_text(separator='\n')
-                lines = (line.strip() for line in text.splitlines())
-                chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
-                text = '\n'.join(chunk for chunk in chunks if chunk)
-                
-                # Return the text
-                return text[:15000] + "..." if len(text) > 15000 else text
-            except Exception as req_error:
-                logger.error(f"Failed to fetch with requests: {str(req_error)}")
-                raise Exception(f"All content fetching methods failed: {str(e)}")
-        
-        # Set page load timeout
-        driver.set_page_load_timeout(30)
-        fetch_logger.info("Selenium: Set page load timeout to 30 seconds")
-        
-        # Navigate to the URL
-        fetch_logger.info(f"Selenium: Navigating to {url}")
-        driver.get(url)
-        fetch_logger.info(f"Selenium: Successfully loaded {url}")
-        
-        # Wait for page to load
-        fetch_logger.info("Selenium: Waiting for body element to be present")
-        WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.TAG_NAME, "body"))
-        )
-        fetch_logger.info("Selenium: Body element found, page loaded")
-        
-        # Handle site-specific issues
-        domain = url.split('//')[1].split('/')[0]
-        
-        # Handle SF Chronicle paywall/cookie consent
-        if 'sfchronicle.com' in domain:
-            try:
-                # Try to close any cookie consent dialogs
-                cookie_buttons = driver.find_elements(By.XPATH, "//button[contains(text(), 'Accept') or contains(text(), 'Agree') or contains(text(), 'Continue')]")
-                for button in cookie_buttons:
-                    try:
-                        button.click()
-                        logger.info("Clicked cookie consent button on SF Chronicle")
-                        time.sleep(1)
-                    except ElementClickInterceptedException:
-                        pass
-            except Exception as e:
-                logger.warning(f"Error handling SF Chronicle specific elements: {str(e)}")
-        
-        # Handle Mercury News cookie consent and subscription dialogs
-        if 'mercurynews.com' in domain:
-            try:
-                # Try to close any cookie consent dialogs
-                cookie_buttons = driver.find_elements(By.XPATH, "//button[contains(text(), 'Accept') or contains(text(), 'Agree') or contains(text(), 'Continue')]")
-                for button in cookie_buttons:
-                    try:
-                        button.click()
-                        logger.info("Clicked cookie consent button on Mercury News")
-                        time.sleep(1)
-                    except ElementClickInterceptedException:
-                        pass
-                
-                # Try to close subscription dialogs
-                close_buttons = driver.find_elements(By.XPATH, "//button[contains(@class, 'close') or contains(@aria-label, 'Close')]")
-                for button in close_buttons:
-                    try:
-                        button.click()
-                        logger.info("Clicked close button on Mercury News")
-                        time.sleep(1)
-                    except ElementClickInterceptedException:
-                        pass
-            except Exception as e:
-                logger.warning(f"Error handling Mercury News specific elements: {str(e)}")
-        
-        # Handle MV Voice specific issues
-        if 'mv-voice.com' in domain:
-            try:
-                # Try to close any dialogs or popups
-                close_buttons = driver.find_elements(By.XPATH, "//button[contains(@class, 'close') or contains(@aria-label, 'Close')]")
-                for button in close_buttons:
-                    try:
-                        button.click()
-                        logger.info("Clicked close button on MV Voice")
-                        time.sleep(1)
-                    except ElementClickInterceptedException:
-                        pass
-            except Exception as e:
-                logger.warning(f"Error handling MV Voice specific elements: {str(e)}")
-        
-        # Scroll down to load lazy content
-        driver.execute_script("window.scrollTo(0, document.body.scrollHeight/3);")
-        time.sleep(2)  # Wait for content to load
-        driver.execute_script("window.scrollTo(0, document.body.scrollHeight*2/3);")
-        time.sleep(2)  # Wait for content to load
-        driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-        time.sleep(2)  # Wait for content to load
-        
-        # Get the page source
-        page_source = driver.page_source
-        
-        # Parse with BeautifulSoup
-        soup = BeautifulSoup(page_source, 'html.parser')
-        
-        # Remove script, style, and other non-content elements
-        for element in soup(["script", "style", "header", "footer", "nav", "aside"]):
+    if not main_content:
+        content_selectors = [
+            'main', 'article', '#content', '.content', '#main', '.main', '.article', '.post',
+            '.story', '.entry', '[role="main"]', '.story-body', '.article-body', '.entry-content'
+        ]
+        for selector in content_selectors:
+            content = soup.select(selector)
+            if content:
+                main_content = content[0]
+                break
+    
+    if main_content:
+        text = main_content.get_text(separator='\n')
+    else:
+        # Fallback to cleaning up body
+        for element in soup.select('.ad, .ads, .advertisement, .sidebar, .comments, .related, .recommended'):
             element.extract()
+        text = soup.get_text(separator='\n')
         
-        # Try to find the main content area
-        main_content = None
+    # Clean up text
+    lines = (line.strip() for line in text.splitlines())
+    chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
+    text = '\n'.join(chunk for chunk in chunks if chunk)
+    
+    # Truncate
+    final_text = text[:MAX_CONTENT_LENGTH] + "..." if len(text) > MAX_CONTENT_LENGTH else text
+    return final_text
+
+def fetch_with_jina(url):
+    """Fetch URL content using Jina Reader API"""
+    fetch_logger.info(f"Starting Jina-based fetch for URL: {url}")
+    start_time = time.time()
+    try:
+        jina_url = f"https://r.jina.ai/{url}"
+        headers = get_headers(url)
+        headers['Referer'] = 'https://jina.ai/'
         
-        # Site-specific selectors for problematic sites
-        site_specific_selectors = {
-            'mv-voice.com': ['.story', '.story-body', '.article-body', '.article-text'],
-            'sfchronicle.com': ['.article-body', '.article', '.story-body', '.paywall-article'],
-            'mercurynews.com': ['.article-body', '.entry-content', '.article', '.story-body']
-        }
+        response = requests.get(jina_url, headers=headers, timeout=TIMEOUT)
+        response.raise_for_status()
         
-        # Check if we're on a site with specific selectors
-        if any(site in domain for site in site_specific_selectors.keys()):
-            for site, selectors in site_specific_selectors.items():
-                if site in domain:
-                    for selector in selectors:
-                        try:
-                            elements = driver.find_elements(By.CSS_SELECTOR, selector)
-                            if elements:
-                                # Get the HTML of the first matching element
-                                main_content_html = elements[0].get_attribute('outerHTML')
-                                main_content = BeautifulSoup(main_content_html, 'html.parser')
-                                logger.info(f"Found main content using site-specific selector {selector} for {site}")
-                                break
-                        except Exception as e:
-                            logger.warning(f"Error finding element with selector {selector}: {str(e)}")
-                    if main_content:
-                        break
+        text = response.text
+        # Basic cleanup just in case
+        soup = BeautifulSoup(text, 'html.parser')
+        text = soup.get_text(separator='\n')
         
-        # If no site-specific selector worked, try generic selectors
-        if not main_content:
-            content_selectors = [
-                'main', 'article', '#content', '.content', '#main', '.main', '.article', '.post',
-                '.story', '.entry', '[role="main"]', '.story-body', '.article-body', '.entry-content',
-                '.post-content', '.article-content', '.story-content'
-            ]
+        if len(text) > MAX_CONTENT_LENGTH:
+            text = text[:MAX_CONTENT_LENGTH] + "..."
             
-            for tag in content_selectors:
-                content = soup.select(tag)
-                if content:
-                    main_content = content[0]
-                    break
+        duration = time.time() - start_time
+        log_fetch_attempt(url, 'Jina', 'SUCCESS', duration, len(text))
+        return text
+    except Exception as e:
+        duration = time.time() - start_time
+        fetch_logger.warning(f"Jina fetch failed for {url}: {str(e)}")
+        log_fetch_attempt(url, 'Jina', 'FAILURE', duration, 0, str(e))
+        return None
+
+def fetch_with_playwright(url):
+    """Fetch using Playwright"""
+    start_time = time.time()
+    try:
+        from playwright.sync_api import sync_playwright
         
-        # If we found a main content area, use that, otherwise use the whole page
-        if main_content:
-            text = main_content.get_text(separator='\n')
-        else:
-            # Try to exclude common non-content areas
-            for element in soup.select('.ad, .ads, .advertisement, .sidebar, .comments, .related, .recommended'):
-                element.extract()
-            text = soup.get_text(separator='\n')
+        logger.info("Attempting fetch with Playwright")
+        cleanup_browser_processes()
         
-        # Process the text
-        fetch_logger.info("Selenium: Processing extracted text content")
-        lines = (line.strip() for line in text.splitlines())
-        chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
-        text = '\n'.join(chunk for chunk in chunks if chunk)
-        
-        # Limit text length to avoid overwhelming Gemini
-        final_text = text[:15000] + "..." if len(text) > 15000 else text
-        fetch_logger.info(f"Selenium: Finished processing content, final length: {len(final_text)} chars")
-        fetch_logger.info(f"Selenium: Content preview (first 500 chars): {final_text[:500]}...")
-        return final_text
-        
-    finally:
-        # Clean up resources
-        if driver:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(
+                headless=True,
+                args=['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
+            )
+            
             try:
-                # Set a timeout for quitting the driver
-                import threading
+                page = browser.new_page(
+                    viewport={"width": 1920, "height": 1080},
+                    user_agent=get_random_user_agent()
+                )
                 
-                def force_quit():
-                    logger.warning("Driver quit timeout reached, forcing process termination")
-                    # Try to find and kill any orphaned Chrome/Chromium processes
-                    try:
-                        import psutil
-                        import signal
-                        
-                        # Look for Chrome/Chromium processes
-                        for proc in psutil.process_iter(['pid', 'name']):
-                            try:
-                                # Check if it's a Chrome/Chromium process
-                                if any(browser in proc.info['name'].lower() for browser in ['chrome', 'chromium']):
-                                    logger.info(f"Killing orphaned browser process: {proc.info['name']} (PID: {proc.info['pid']})")
-                                    os.kill(proc.info['pid'], signal.SIGTERM)
-                            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-                                pass
-                    except ImportError:
-                        # If psutil is not available, try using subprocess
-                        try:
-                            import subprocess
-                            
-                            # Try to kill Chrome/Chromium processes
-                            if os.name == 'nt':  # Windows
-                                subprocess.run(['taskkill', '/F', '/IM', 'chrome.exe'], stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
-                                subprocess.run(['taskkill', '/F', '/IM', 'chromium.exe'], stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
-                            else:  # Unix/Linux/Mac
-                                subprocess.run(['pkill', '-f', 'chrome'], stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
-                                subprocess.run(['pkill', '-f', 'chromium'], stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
-                        except Exception as e:
-                            logger.warning(f"Failed to kill browser processes: {str(e)}")
+                page.goto(url, timeout=TIMEOUT * 1000)
+                page.wait_for_load_state("domcontentloaded", timeout=TIMEOUT * 1000)
                 
-                # Set a timeout for driver.quit()
-                quit_timeout = threading.Timer(10.0, force_quit)
-                quit_timeout.start()
-                
+                # Scroll to load lazy content
                 try:
-                    driver.quit()
-                finally:
-                    # Cancel the timeout if driver.quit() completed normally
-                    quit_timeout.cancel()
+                    page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                    time.sleep(2)
+                except Exception:
+                    pass
                 
-            except Exception as e:
-                logger.warning(f"Error quitting driver: {str(e)}")
+                content = page.content()
+                logger.info("Successfully fetched with Playwright")
                 
-                # Try to find and kill any orphaned Chrome/Chromium processes
-                try:
-                    import subprocess
-                    
-                    # Try to kill Chrome/Chromium processes
-                    if os.name == 'nt':  # Windows
-                        subprocess.run(['taskkill', '/F', '/IM', 'chrome.exe'], stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
-                        subprocess.run(['taskkill', '/F', '/IM', 'chromium.exe'], stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
-                    else:  # Unix/Linux/Mac
-                        subprocess.run(['pkill', '-f', 'chrome'], stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
-                        subprocess.run(['pkill', '-f', 'chromium'], stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
-                except Exception as e:
-                    logger.warning(f"Failed to kill browser processes: {str(e)}")
+                duration = time.time() - start_time
+                log_fetch_attempt(url, 'Playwright', 'SUCCESS', duration, len(content) if content else 0)
+                return content
+            finally:
+                browser.close()
+                
+    except ImportError:
+        duration = time.time() - start_time
+        logger.warning("Playwright not installed")
+        log_fetch_attempt(url, 'Playwright', 'SKIPPED', duration, 0, "Playwright not installed")
+        return None
+    except Exception as e:
+        duration = time.time() - start_time
+        logger.warning(f"Playwright fetch failed: {str(e)}")
+        log_fetch_attempt(url, 'Playwright', 'FAILURE', duration, 0, str(e))
+        return None
+
+def fetch_with_selenium(url):
+    """Fetch using Selenium"""
+    start_time = time.time()
+    try:
+        from selenium import webdriver
+        from selenium.webdriver.chrome.options import Options
+        from selenium.webdriver.chrome.service import Service
+        from selenium.webdriver.common.by import By
+        from selenium.webdriver.support.ui import WebDriverWait
+        from selenium.webdriver.support import expected_conditions as EC
         
-        # No temporary directory to clean up since we're using incognito mode
+        logger.info("Attempting fetch with Selenium")
+        cleanup_browser_processes()
+        
+        chrome_options = Options()
+        chrome_options.add_argument("--headless=new")  # Updated headless mode
+        chrome_options.add_argument("--no-sandbox")
+        chrome_options.add_argument("--disable-dev-shm-usage")
+        chrome_options.add_argument("--disable-gpu")
+        chrome_options.add_argument(f"--user-agent={get_random_user_agent()}")
+        
+        driver = None
+        try:
+            # Try system/path driver first
+            driver = webdriver.Chrome(options=chrome_options)
+        except Exception:
+            try:
+                import chromedriver_autoinstaller
+                chromedriver_autoinstaller.install()
+                driver = webdriver.Chrome(options=chrome_options)
+            except Exception:
+                pass
+                
+        if not driver:
+            logger.warning("Could not initialize Selenium driver")
+            log_fetch_attempt(url, 'Selenium', 'SKIPPED', time.time() - start_time, 0, "Driver not initialized")
+            return None
+
+        try:
+            driver.set_page_load_timeout(TIMEOUT)
+            driver.get(url)
+            
+            # Wait for body
+            try:
+                WebDriverWait(driver, 10).until(
+                    EC.presence_of_element_located((By.TAG_NAME, "body"))
+                )
+            except Exception:
+                pass
+            
+            # Scroll
+            driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+            time.sleep(2)
+            
+            content = driver.page_source
+            duration = time.time() - start_time
+            log_fetch_attempt(url, 'Selenium', 'SUCCESS', duration, len(content) if content else 0)
+            return content
+        finally:
+            try:
+                driver.quit()
+            except Exception:
+                pass
+            
+    except ImportError:
+        duration = time.time() - start_time
+        logger.warning("Selenium not installed")
+        log_fetch_attempt(url, 'Selenium', 'SKIPPED', duration, 0, "Selenium not installed")
+        return None
+    except Exception as e:
+        duration = time.time() - start_time
+        logger.warning(f"Selenium fetch failed: {str(e)}")
+        log_fetch_attempt(url, 'Selenium', 'FAILURE', duration, 0, str(e))
+        return None
+
+def fetch_with_requests(url):
+    """Fallback fetch using requests with realistic session"""
+    start_time = time.time()
+    try:
+        logger.info("Attempting fetch with Requests")
+        session = requests.Session()
+        headers = get_headers(url)
+        
+        # Try to get homepage cookies first
+        try:
+            domain = url.split('//')[1].split('/')[0]
+            session.get(f"https://{domain}", headers=headers, timeout=10)
+        except Exception:
+            pass
+            
+        response = session.get(url, headers=headers, timeout=TIMEOUT)
+        response.raise_for_status()
+        
+        duration = time.time() - start_time
+        log_fetch_attempt(url, 'Requests', 'SUCCESS', duration, len(response.text))
+        return response.text
+    except Exception as e:
+        duration = time.time() - start_time
+        logger.warning(f"Requests fetch failed: {str(e)}")
+        log_fetch_attempt(url, 'Requests', 'FAILURE', duration, 0, str(e))
+        return None
+
+def fetch_content(url, use_browser=None, use_jina=True):
+    """
+    Main entry point for fetching URL content.
+    Strategy: Jina -> Requests -> Playwright -> Selenium
+    """
+    fetch_logger.info(f"Starting fetch for URL: {url}, use_browser={use_browser}, use_jina={use_jina}")
+    
+    # 1. Try Jina
+    if use_jina:
+        content = fetch_with_jina(url)
+        if content and is_content_suitable_for_llm(content, url):
+            fetch_logger.info("Successfully fetched and verified with Jina")
+            return content
+            
+    # 2. Check for problematic sites that need browser
+    domain = url.split('//')[1].split('/')[0]
+    problematic_sites = ['mv-voice.com', 'paloaltoonline.com', 'almanacnews.com']
+    force_browser = any(site in domain for site in problematic_sites)
+    
+    if force_browser:
+        fetch_logger.info(f"Force browser enabled for {domain}")
+        use_browser = True
+    
+    # 3. Try Requests (if not forced to use browser)
+    if use_browser is not True:
+        html = fetch_with_requests(url)
+        if html:
+            content = process_html_content(html, url)
+            if is_content_suitable_for_llm(content, url):
+                fetch_logger.info("Successfully fetched and verified with Requests")
+                return content
+            else:
+                fetch_logger.info("Requests content not suitable, upgrading to browser")
+        
+    # 4. Try Browser (Playwright -> Selenium)
+    if use_browser is not False:
+        # Playwright
+        html = fetch_with_playwright(url)
+        if html:
+            content = process_html_content(html, url)
+            if is_content_suitable_for_llm(content, url):
+                fetch_logger.info("Successfully fetched and verified with Playwright")
+                return content
+                
+        # Selenium
+        html = fetch_with_selenium(url)
+        if html:
+            content = process_html_content(html, url)
+            if is_content_suitable_for_llm(content, url):
+                fetch_logger.info("Successfully fetched and verified with Selenium")
+                return content
+                
+    fetch_logger.error(f"Failed to fetch suitable content from {url} with any method")
+    return None
