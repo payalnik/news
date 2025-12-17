@@ -105,3 +105,39 @@ class NewsItem(models.Model):
         similarity = intersection / union
         
         return similarity >= threshold
+
+class FetchLog(models.Model):
+    STATUS_CHOICES = [
+        ('SUCCESS', 'Success'),
+        ('FAILURE', 'Failure'),
+        ('SKIPPED', 'Skipped'),
+    ]
+    
+    url = models.URLField(max_length=2000)
+    domain = models.CharField(max_length=255, blank=True)
+    method = models.CharField(max_length=50) # Jina, Requests, Playwright, Selenium
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES)
+    timestamp = models.DateTimeField(auto_now_add=True)
+    duration_seconds = models.FloatField(default=0.0)
+    content_length = models.IntegerField(default=0)
+    error_message = models.TextField(blank=True, null=True)
+    
+    def save(self, *args, **kwargs):
+        if not self.domain and self.url:
+            from urllib.parse import urlparse
+            try:
+                self.domain = urlparse(self.url).netloc
+            except:
+                pass
+        super().save(*args, **kwargs)
+        
+    class Meta:
+        ordering = ['-timestamp']
+        indexes = [
+            models.Index(fields=['domain']),
+            models.Index(fields=['timestamp']),
+            models.Index(fields=['status']),
+        ]
+        
+    def __str__(self):
+        return f"{self.method} fetch for {self.domain} - {self.status}"
