@@ -22,10 +22,12 @@ preprocess_logger = logging.getLogger('news_app.preprocess')
 # Try to import google.generativeai, but don't fail if it's not available
 try:
     import google.generativeai as genai
+    from google import genai as google_genai
+    from google.genai import types
     GEMINI_AVAILABLE = True
 except ImportError:
     GEMINI_AVAILABLE = False
-    logging.warning("google.generativeai module not available. Some features will be disabled.")
+    logging.warning("google.generativeai or google-genai module not available. Some features will be disabled.")
 
 def preprocess_content_with_llm(content, url):
     """
@@ -196,9 +198,11 @@ def send_news_update(user_profile_id):
         
         # Initialize Google Gemini client if available
         gemini_available = GEMINI_AVAILABLE  # Create a local copy of the global variable
+        client = None
         if gemini_available:
             try:
                 genai.configure(api_key=settings.GOOGLE_API_KEY)
+                client = google_genai.Client(api_key=settings.GOOGLE_API_KEY)
             except Exception as e:
                 logger.error(f"Error configuring Gemini: {str(e)}")
                 gemini_available = False  # Only modify the local copy
@@ -367,8 +371,17 @@ def send_news_update(user_profile_id):
                         gemini_logger.info(f"Sending request to Gemini for section '{section.name}'")
                         gemini_logger.info(f"Full prompt to Gemini:\n{prompt}")
                         
-                        model = genai.GenerativeModel('gemini-3-flash-preview')
-                        response = model.generate_content(prompt)
+                        generate_content_config = types.GenerateContentConfig(
+                            thinking_config=types.ThinkingConfig(
+                                thinking_level="MINIMAL",
+                            ),
+                        )
+
+                        response = client.models.generate_content(
+                            model='gemini-3-flash-preview',
+                            contents=prompt,
+                            config=generate_content_config,
+                        )
                         
                         summary_text = response.text
                         gemini_logger.info(f"Received response from Gemini for section '{section.name}'")
