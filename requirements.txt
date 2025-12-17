@@ -1,5 +1,6 @@
 Django==4.2.10
 google-generativeai
+google-genai
 celery==5.3.6
 redis==5.0.1
 requests==2.31.0
