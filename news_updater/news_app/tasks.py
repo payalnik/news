@@ -78,7 +78,7 @@ def preprocess_content_with_llm(content, url):
         preprocess_logger.info(f"Sending preprocessing request to Gemini for {url}")
         
         # Use Gemini Flash model for preprocessing (faster and cheaper than Pro)
-        model = genai.GenerativeModel('gemini-2.0-flash')
+        model = genai.GenerativeModel('gemini-3.0-flash')
         response = model.generate_content(prompt)
         
         preprocessed_content = response.text
@@ -361,11 +361,11 @@ def send_news_update(user_profile_id):
                     summary_text = f"Unable to generate summary for {section.name} because the Gemini API is not available. Please check the source links below for the original content."
                     valid_json = False
                 else:
-                    # Use Gemini Flash 2.0 model
+                    # Use Gemini Flash 3.0 model
                     gemini_logger.info(f"Sending request to Gemini for section '{section.name}'")
                     gemini_logger.info(f"Full prompt to Gemini:\n{prompt}")
                     
-                    model = genai.GenerativeModel('gemini-2.0-flash')
+                    model = genai.GenerativeModel('gemini-3.0-flash')
                     response = model.generate_content(prompt)
                     
                     summary_text = response.text
