@@ -68,7 +68,7 @@ For convenience, you can use the provided startup scripts:
 - Create custom news sections with specific sources
 - Schedule news updates at preferred times
 - Send immediate news updates on demand
-- AI-powered news summarization using Claude
+- AI-powered news summarization using Google Gemini
 - Advanced web scraping with browser simulation
 - Headless browser support for JavaScript-heavy sites
 
@@ -77,7 +77,7 @@ For convenience, you can use the provided startup scripts:
 - Python 3.8+
 - Redis server (for Celery)
 - SMTP server for sending emails
-- Anthropic API key
+- Google API key
 - Chrome browser (for headless browser functionality)
 
 ## Advanced Content Fetching

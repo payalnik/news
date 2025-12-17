@@ -78,7 +78,7 @@ def preprocess_content_with_llm(content, url):
         preprocess_logger.info(f"Sending preprocessing request to Gemini for {url}")
         
         # Use Gemini Flash model for preprocessing (faster and cheaper than Pro)
-        model = genai.GenerativeModel('gemini-3-flash')
+        model = genai.GenerativeModel('gemini-3-flash-preview')
         response = model.generate_content(prompt)
         
         preprocessed_content = response.text
@@ -365,7 +365,7 @@ def send_news_update(user_profile_id):
                     gemini_logger.info(f"Sending request to Gemini for section '{section.name}'")
                     gemini_logger.info(f"Full prompt to Gemini:\n{prompt}")
                     
-                    model = genai.GenerativeModel('gemini-3-flash')
+                    model = genai.GenerativeModel('gemini-3-flash-preview')
                     response = model.generate_content(prompt)
                     
                     summary_text = response.text
@@ -757,7 +757,6 @@ def fetch_with_jina(url):
         elapsed_time = time.time() - start_time
         fetch_logger.info(f"Jina fetch completed in {elapsed_time:.2f} seconds")
         fetch_logger.info(f"Jina fetch for {url} completed, content length: {len(text)} chars")
-        fetch_logger.info(f"Content preview (first 500 chars): {text[:500]}...")
         
         # Limit text length to avoid overwhelming Gemini
         return text[:60000] + "..." if len(text) > 60000 else text
@@ -808,7 +807,6 @@ def fetch_url_content(url, use_browser=None, use_jina=True):
         content = _fetch_with_browser(url)
         fetch_logger.info(f"Browser fetch for {url} completed, content length: {len(content)} chars")
         # Log the first 500 chars of content for debugging
-        fetch_logger.info(f"Content preview (first 500 chars): {content[:500]}...")
         return content
     # Modern, up-to-date user agents
     user_agents = [
@@ -914,7 +912,6 @@ def fetch_url_content(url, use_browser=None, use_jina=True):
                 fetch_logger.info(f"Response too short, trying with headless browser for {url}")
                 content = _fetch_with_browser(url)
                 fetch_logger.info(f"Browser fetch for {url} completed, content length: {len(content)} chars")
-                fetch_logger.info(f"Content preview (first 500 chars): {content[:500]}...")
                 return content
             
             # Check for common anti-bot patterns
