@@ -21,6 +21,24 @@ class NewsSectionForm(forms.ModelForm):
             'prompt': forms.Textarea(attrs={'rows': 4}),
             'sources': forms.Textarea(attrs={'rows': 3, 'placeholder': 'https://example.com, https://another-source.com'}),
         }
+        help_texts = {
+            'sources': 'Enter up to 7 URLs separated by commas, newlines, or spaces.',
+        }
+    
+    def clean_sources(self):
+        sources_text = self.cleaned_data.get('sources')
+        if not sources_text:
+            return sources_text
+            
+        # Parse sources similarly to the model method
+        import re
+        normalized = re.sub(r'[,\n\r\s]+', '|', sources_text)
+        sources_list = [source.strip() for source in normalized.split('|') if source.strip()]
+        
+        if len(sources_list) > 7:
+            raise forms.ValidationError(f"You can add a maximum of 7 sources per section. You currently have {len(sources_list)} sources.")
+            
+        return sources_text
 
 class TimeSlotForm(forms.Form):
     # Morning: 6:00 AM - 11:30 AM

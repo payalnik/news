@@ -213,6 +213,11 @@ def add_news_section(request):
         messages.warning(request, 'Please verify your email first.')
         return redirect('verify_email')
     
+    # Limit number of sections per user to 5
+    if NewsSection.objects.filter(user_profile=user_profile).count() >= 5:
+        messages.error(request, 'You have reached the limit of 5 news sections per user.')
+        return redirect('dashboard')
+    
     if request.method == 'POST':
         form = NewsSectionForm(request.POST)
         if form.is_valid():
