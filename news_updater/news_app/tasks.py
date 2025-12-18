@@ -1,6 +1,7 @@
 from celery import shared_task
 from django.core.mail import send_mail, EmailMultiAlternatives
 from django.utils.html import format_html
+from django.template.loader import render_to_string
 from django.conf import settings
 from django.utils import timezone
 import logging
@@ -223,33 +224,8 @@ def send_news_update(user_profile_id):
                     logger.error(f"Error configuring Gemini: {str(e)}")
                     gemini_available = False  # Only modify the local copy
             
-            # Prepare email content
-            plain_text_content = f"Hello {user.username},\n\nHere's your news update for {timezone.now().strftime('%Y-%m-%d')}:\n\n"
-            html_content = f"""
-            <html>
-            <head>
-                <style>
-                    body {{ font-family: Arial, sans-serif; font-size: 16px; line-height: 1.4; color: #333; max-width: 800px; margin: 0 auto; padding: 10px; }}
-                    h1 {{ color: #2c3e50; font-size: 26px; }}
-                    h2 {{ color: #3498db; margin-top: 30px; padding-bottom: 10px; border-bottom: 1px solid #eee; font-size: 24px; }}
-                    .source-links {{ margin-top: 15px; margin-bottom: 25px; }}
-                    .source-links a {{ color: #2980b9; text-decoration: none; margin-right: 15px; }}
-                    .source-links a:hover {{ text-decoration: underline; }}
-                    .footer {{ margin-top: 40px; padding-top: 20px; border-top: 1px solid #eee; font-size: 14px; color: #7f8c8d; }}
-                    .news-list {{ list-style-type: none; padding-left: 0; }}
-                    .news-item {{ margin-bottom: 25px; padding-bottom: 20px; border-bottom: 1px solid #eee; }}
-                    .news-item strong {{ font-size: 18px; color: #2c3e50; display: block; margin-bottom: 10px; }}
-                    .news-item p {{ margin-top: 5px; margin-bottom: 10px; font-size: 16px; }}
-                    .item-sources {{ font-size: 14px; color: #7f8c8d; margin-top: 8px; }}
-                    .item-sources a {{ color: #3498db; text-decoration: none; margin-right: 10px; }}
-                    .item-sources a:hover {{ text-decoration: underline; }}
-                </style>
-            </head>
-            <body>
-                <h1>News Update for {timezone.now().strftime('%Y-%m-%d')}</h1>
-                <p>Hello {user.username},</p>
-                <p>Here's your personalized news update:</p>
-            """
+            # Prepare data collection
+            sections_data = []
             
             # Use a persistent browser session for all fetches in this task
             with BrowserSession() as browser_session:
@@ -373,11 +349,17 @@ def send_news_update(user_profile_id):
                     If you need more information from any specific source, please indicate that outside the JSON structure.
                     """
                     
+                    section_result = {
+                        'name': section.name,
+                        'items': [],
+                        'error': None
+                    }
+                    
                     try:
                         if not gemini_available:
                             # If Gemini is not available, provide a simple fallback
                             logger.warning(f"Gemini is not available. Using fallback for section {section.name}")
-                            summary_text = f"Unable to generate summary for {section.name} because the Gemini API is not available. Please check the source links below for the original content."
+                            section_result['error'] = f"Unable to generate summary for {section.name} because the Gemini API is not available. Please check the source links below for the original content."
                             valid_json = False
                         else:
                             # Use Gemini Flash 3 model with native JSON output
@@ -489,14 +471,8 @@ def send_news_update(user_profile_id):
                             if filtered_count > 0:
                                 logger.info(f"Filtered out {filtered_count} duplicate news items for section {section.name}")
                         
-                        # Add section to plain text email
-                        plain_text_content += f"\n\n## {section.name}\n\n"
-                        
-                        # Add section to HTML email
-                        html_content += f"<h2>{section.name}</h2>"
-                        
                         if valid_json:
-                            # Format the news items for plain text email
+                            # Process and store news items
                             for item in news_items:
                                 # Store the news item in the database
                                 headline = item.get("headline", "")
@@ -515,12 +491,7 @@ def send_news_update(user_profile_id):
                                 news_item.set_sources_list(sources)
                                 news_item.save()
                                 
-                                headline = item.get("headline", "")
-                                details = item.get("details", "")
-                                sources = item.get("sources", [])
-                                confidence = item.get("confidence", "")
-                                
-                                # Clean up source titles
+                                # Clean up source titles for display
                                 cleaned_sources = []
                                 for source in sources:
                                     url = source.get("url", "")
@@ -529,212 +500,60 @@ def send_news_update(user_profile_id):
                                     # Extract domain name for cleaner display
                                     domain = url.split("//")[-1].split("/")[0]
                                     
-                                    # Clean up title - limit length and remove garbage text
-                                    # For news sites that often have long titles with multiple headlines
-                                    if len(title) > 60:  # If title is too long
-                                        # Try to get a cleaner title
-                                        if "New York Times" in title:
-                                            title = "The New York Times"
-                                        elif "nytimes" in domain:
-                                            title = "The New York Times"
-                                        elif "foxnews" in domain:
-                                            title = "Fox News"
-                                        elif "cnn" in domain:
-                                            title = "CNN"
-                                        elif "bbc" in domain:
-                                            title = "BBC"
-                                        elif "washingtonpost" in domain:
-                                            title = "Washington Post"
-                                        elif "wsj" in domain:
-                                            title = "Wall Street Journal"
-                                        else:
-                                            # Just use the domain name if we can't identify the source
-                                            title = domain
+                                    # Clean up title
+                                    if len(title) > 60:
+                                        if "New York Times" in title or "nytimes" in domain: title = "The New York Times"
+                                        elif "foxnews" in domain: title = "Fox News"
+                                        elif "cnn" in domain: title = "CNN"
+                                        elif "bbc" in domain: title = "BBC"
+                                        elif "washingtonpost" in domain: title = "Washington Post"
+                                        elif "wsj" in domain: title = "Wall Street Journal"
+                                        else: title = domain
                                     
                                     cleaned_sources.append({"url": url, "title": title})
                                 
-                                plain_text_content += f"* {headline}\n"
-                                plain_text_content += f"  {details}\n"
-                                if cleaned_sources:
-                                    plain_text_content += "  Sources: "
-                                    source_links = []
-                                    for source in cleaned_sources:
-                                        source_links.append(f"{source.get('title', 'Article')}: {source.get('url', '')}")
-                                    plain_text_content += ", ".join(source_links) + "\n\n"
-                            
-                            # Format the news items for HTML email
-                            html_content += "<ul class='news-list'>"
-                            for item in news_items:
-                                headline = item.get("headline", "")
-                                details = item.get("details", "")
-                                sources = item.get("sources", [])
-                                confidence = item.get("confidence", "")
-                                
-                                # Clean up source titles
-                                cleaned_sources = []
-                                for source in sources:
-                                    url = source.get("url", "")
-                                    title = source.get("title", "Article")
-                                    
-                                    # Extract domain name for cleaner display
-                                    domain = url.split("//")[-1].split("/")[0]
-                                    
-                                    # Clean up title - limit length and remove garbage text
-                                    # For news sites that often have long titles with multiple headlines
-                                    if len(title) > 60:  # If title is too long
-                                        # Try to get a cleaner title
-                                        if "New York Times" in title:
-                                            title = "The New York Times"
-                                        elif "nytimes" in domain:
-                                            title = "The New York Times"
-                                        elif "foxnews" in domain:
-                                            title = "Fox News"
-                                        elif "cnn" in domain:
-                                            title = "CNN"
-                                        elif "bbc" in domain:
-                                            title = "BBC"
-                                        elif "washingtonpost" in domain:
-                                            title = "Washington Post"
-                                        elif "wsj" in domain:
-                                            title = "Wall Street Journal"
-                                        else:
-                                            # Just use the domain name if we can't identify the source
-                                            title = domain
-                                    
-                                    cleaned_sources.append({"url": url, "title": title})
-                                
-                                html_content += "<li class='news-item'>"
-                                html_content += f"<strong>{headline}</strong>"
-                                html_content += f"<p>{details}</p>"
-                                
-                                if cleaned_sources:
-                                    html_content += "<div class='item-sources'>Sources: "
-                                    source_links = []
-                                    for source in cleaned_sources:
-                                        url = source.get("url", "")
-                                        title = source.get("title", "Article")
-                                        source_links.append(f"<a href='{url}' target='_blank'>{title}</a>")
-                                    html_content += ", ".join(source_links)
-                                    html_content += "</div>"
-                                
-                                html_content += "</li>"
-                            html_content += "</ul>"
+                                section_result['items'].append({
+                                    'headline': headline,
+                                    'details': details,
+                                    'sources': cleaned_sources,
+                                    'confidence': confidence
+                                })
+
                         else:
-                            # Fallback to the old formatting if JSON parsing fails
-                            plain_text_content += summary_text + "\n\n"
-                            
-                            # Convert the summary to HTML if it's not already in HTML format
-                            if "<p>" not in summary_text:
-                                # Split by paragraphs and wrap in <p> tags
-                                paragraphs = summary_text.split("\n\n")
-                                html_summary = ""
-                                for para in paragraphs:
-                                    if para.strip():
-                                        # Check if this is a list item
-                                        if para.startswith("- ") or para.startswith("* "):
-                                            # Convert to HTML list
-                                            list_items = para.split("\n")
-                                            html_summary += "<ul>"
-                                            for item in list_items:
-                                                if item.strip().startswith("- ") or item.strip().startswith("* "):
-                                                    item_content = item.strip()[2:].strip()
-                                                    html_summary += f"<li>{item_content}</li>"
-                                            html_summary += "</ul>"
-                                        else:
-                                            html_summary += f"<p>{para}</p>"
-                            else:
-                                # Already has HTML formatting
-                                html_summary = summary_text
-                            
-                            # Ensure proper list formatting if there are any markdown-style lists that weren't caught
-                            # First, identify paragraphs that are actually lists
-                            if "<p>- " in html_summary or "<p>* " in html_summary:
-                                # Split the HTML into chunks to process each paragraph separately
-                                chunks = []
-                                current_pos = 0
-                                in_list = False
-                                
-                                # Process the HTML content to properly format lists
-                                while current_pos < len(html_summary):
-                                    # Find the next paragraph start
-                                    p_start = html_summary.find("<p>", current_pos)
-                                    if p_start == -1:
-                                        # No more paragraphs, add the rest and break
-                                        chunks.append(html_summary[current_pos:])
-                                        break
-                                    
-                                    # Add content before this paragraph
-                                    if p_start > current_pos:
-                                        chunks.append(html_summary[current_pos:p_start])
-                                    
-                                    # Find the end of this paragraph
-                                    p_end = html_summary.find("</p>", p_start)
-                                    if p_end == -1:
-                                        # Malformed HTML, just add the rest and break
-                                        chunks.append(html_summary[current_pos:])
-                                        break
-                                    
-                                    p_content = html_summary[p_start:p_end+4]  # Include the </p>
-                                    
-                                    # Check if this paragraph is a list item
-                                    if p_content.startswith("<p>- ") or p_content.startswith("<p>* "):
-                                        # This is a list item
-                                        if not in_list:
-                                            # Start a new list
-                                            in_list = True
-                                            item_content = p_content[5:].replace("</p>", "</li>")  # 5 to skip "<p>- " or "<p>* "
-                                            chunks.append("<ul><li>" + item_content)
-                                        else:
-                                            # Continue the list
-                                            item_content = p_content[5:].replace("</p>", "</li>")  # 5 to skip "<p>- " or "<p>* "
-                                            chunks.append("<li>" + item_content)
-                                    else:
-                                        # Not a list item
-                                        if in_list:
-                                            # End the list before adding this paragraph
-                                            in_list = False
-                                            chunks.append("</ul>" + p_content)
-                                        else:
-                                            # Regular paragraph
-                                            chunks.append(p_content)
-                                    
-                                    current_pos = p_end + 4  # Move past </p>
-                                
-                                # If we ended while still in a list, close it
-                                if in_list:
-                                    chunks.append("</ul>")
-                                
-                                # Join all chunks to form the new HTML
-                                html_summary = "".join(chunks)
-                            
-                            html_content += html_summary
-                        
-                        # Add source links section if we're not using the JSON format
-                        if not valid_json:
-                            plain_text_content += "Sources:\n"
-                            for url in source_urls:
-                                plain_text_content += f"- {url}\n"
-                            
-                            html_content += '<div class="source-links"><strong>Sources:</strong> '
-                            for url in source_urls:
-                                domain = url.split("//")[-1].split("/")[0]
-                                html_content += f'<a href="{url}" target="_blank">{domain}</a> '
-                            html_content += '</div>'
-                        
+                            # Fallback if JSON parsing fails
+                            section_result['error'] = summary_text
+
                     except Exception as e:
                         logger.error(f"Error generating summary with Gemini: {str(e)}")
-                        error_message = f"Error generating summary: {str(e)}"
-                        plain_text_content += f"\n\n## {section.name}\n\n{error_message}\n\n"
-                        html_content += f"<h2>{section.name}</h2><p>{error_message}</p>"
+                        section_result['error'] = f"Error generating summary: {str(e)}"
+                    
+                    sections_data.append(section_result)
             
-            # Complete HTML content
-            html_content += """
-                <div class="footer">
-                    <p>This email was automatically generated and sent by your News Updater service.</p>
-                </div>
-            </body>
-            </html>
-            """
+            # Generate HTML content using the template
+            context = {
+                'date': timezone.now().strftime('%Y-%m-%d'),
+                'sections': sections_data,
+                'dashboard_url': 'https://news.alexilin.com/dashboard/'
+            }
+            html_content = render_to_string('news_app/news_update_email.html', context)
+            
+            # Generate plain text content from the structured data
+            plain_text_content = f"Here's your news update for {timezone.now().strftime('%Y-%m-%d')}:\n\n"
+            
+            for section in sections_data:
+                plain_text_content += f"\n\n## {section['name']}\n\n"
+                
+                if section['error']:
+                    plain_text_content += f"{section['error']}\n\n"
+                else:
+                    for item in section['items']:
+                        plain_text_content += f"* {item['headline']}\n"
+                        plain_text_content += f"  {item['details']}\n"
+                        if item['sources']:
+                            source_links = [f"{s['title']}: {s['url']}" for s in item['sources']]
+                            plain_text_content += "  Sources: " + ", ".join(source_links) + "\n\n"
+            
+            plain_text_content += "\n\nEdit your news sections: https://news.alexilin.com/dashboard/"
             
             # Send email
             subject = f"Your News Update - {timezone.now().strftime('%Y-%m-%d')}"
