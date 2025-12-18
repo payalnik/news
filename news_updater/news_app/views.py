@@ -19,6 +19,8 @@ from .forms import SignUpForm, VerificationForm, NewsSectionForm, TimeSlotForm
 from .tasks import send_news_update
 
 def home(request):
+    if request.user.is_authenticated:
+        return redirect('dashboard')
     return render(request, 'news_app/home.html')
 
 def signup(request):
