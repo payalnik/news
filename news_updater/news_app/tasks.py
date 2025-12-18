@@ -526,8 +526,6 @@ def send_news_update(user_profile_id):
                                 
                                 plain_text_content += f"* {headline}\n"
                                 plain_text_content += f"  {details}\n"
-                                if confidence:
-                                    plain_text_content += f"  Confidence: {confidence}\n"
                                 if cleaned_sources:
                                     plain_text_content += "  Sources: "
                                     source_links = []
@@ -579,15 +577,6 @@ def send_news_update(user_profile_id):
                                 html_content += "<li class='news-item'>"
                                 html_content += f"<strong>{headline}</strong>"
                                 html_content += f"<p>{details}</p>"
-                                
-                                if confidence:
-                                    confidence_color = {
-                                        "high": "#28a745",
-                                        "medium": "#ffc107",
-                                        "low": "#dc3545"
-                                    }.get(confidence.lower(), "#6c757d")
-                                    
-                                    html_content += f"<div style='margin-top: 5px; font-size: 12px;'><span style='background-color: {confidence_color}; color: white; padding: 2px 6px; border-radius: 3px;'>Confidence: {confidence}</span></div>"
                                 
                                 if cleaned_sources:
                                     html_content += "<div class='item-sources'>Sources: "
@@ -959,7 +948,8 @@ def fetch_url_content(url, use_browser=None, use_jina=True, browser_session=None
                 return _fetch_with_browser(url, browser_session=browser_session)
             
             # Use improved processing from browser_fetch
-            return process_html_content(response.text, url)
+            # Pass bytes (response.content) to let BeautifulSoup detect encoding
+            return process_html_content(response.content, url)
             
         except requests.exceptions.HTTPError as e:
             logger.error(f"HTTP error fetching {url}: {str(e)}")
