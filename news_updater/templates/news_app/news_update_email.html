@@ -141,15 +141,18 @@
                         <span class="headline">{{ item.headline }}</span>
                         <p class="details">{{ item.details }}</p>
                         
-                        {% if item.sources %}
                         <div class="source-list">
-                            {% for source in item.sources %}
-                            <a href="{{ source.url }}" class="source-link" target="_blank">
-                                {{ source.title }}
+                            {% if item.sources %}
+                                {% for source in item.sources %}
+                                <a href="{{ source.url }}" class="source-link" target="_blank">
+                                    {{ source.title }}
+                                </a>
+                                {% endfor %}
+                            {% endif %}
+                            <a href="https://www.google.com/search?q={{ item.headline|urlencode }}&tbm=nws&tbs=qdr:d" class="source-link" target="_blank">
+                                Search Google News
                             </a>
-                            {% endfor %}
                         </div>
-                        {% endif %}
                     </div>
                     {% endfor %}
                 {% endif %}
