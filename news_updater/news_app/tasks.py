@@ -224,7 +224,7 @@ def send_news_update(user_profile_id):
                     gemini_available = False  # Only modify the local copy
             
             # Prepare email content
-            plain_text_content = f"Hello {user.username},\n\nHere's your news update for {timezone.now().strftime('%Y-%m-%d')}:\n\n"
+            plain_text_content = f"Here's your news update for {timezone.now().strftime('%Y-%m-%d')}:\n\n"
             html_content = f"""
             <html>
             <head>
@@ -247,8 +247,6 @@ def send_news_update(user_profile_id):
             </head>
             <body>
                 <h1>News Update for {timezone.now().strftime('%Y-%m-%d')}</h1>
-                <p>Hello {user.username},</p>
-                <p>Here's your personalized news update:</p>
             """
             
             # Use a persistent browser session for all fetches in this task
@@ -727,10 +725,14 @@ def send_news_update(user_profile_id):
                         plain_text_content += f"\n\n## {section.name}\n\n{error_message}\n\n"
                         html_content += f"<h2>{section.name}</h2><p>{error_message}</p>"
             
+            # Add link to edit sections
+            plain_text_content += "\n\nEdit your news sections: https://news.alexilin.com/dashboard/"
+            
             # Complete HTML content
             html_content += """
                 <div class="footer">
                     <p>This email was automatically generated and sent by your News Updater service.</p>
+                    <p><a href="https://news.alexilin.com/dashboard/">Edit your news sections</a></p>
                 </div>
             </body>
             </html>

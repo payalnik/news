@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+    <style>
+        /* Base */
+        body {
+            background-color: #f6f6f6;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            -webkit-font-smoothing: antialiased;
+            font-size: 16px;
+            line-height: 1.6;
+            margin: 0;
+            padding: 0;
+            -ms-text-size-adjust: 100%;
+            -webkit-text-size-adjust: 100%;
+            color: #333333;
+        }
+        
+        /* Layout */
+        .container {
+            margin: 0 auto;
+            max-width: 600px; /* Standard email width */
+            padding: 20px;
+        }
+        .content {
+            background-color: #ffffff;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            padding: 40px;
+        }
+        
+        /* Typography */
+        h1 {
+            color: #1a1a1a;
+            font-size: 24px;
+            font-weight: 700;
+            margin-top: 0;
+            margin-bottom: 24px;
+            text-align: center;
+            border-bottom: 2px solid #f0f0f0;
+            padding-bottom: 20px;
+        }
+        h2 {
+            color: #2c3e50;
+            font-size: 20px;
+            font-weight: 600;
+            margin-top: 30px;
+            margin-bottom: 15px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 10px;
+        }
+        
+        /* News Items */
+        .news-item {
+            margin-bottom: 30px;
+        }
+        .headline {
+            font-size: 18px;
+            font-weight: 700;
+            color: #2c3e50;
+            display: block;
+            margin-bottom: 8px;
+            line-height: 1.4;
+        }
+        .details {
+            color: #555555;
+            margin: 0 0 12px;
+        }
+        
+        /* Sources Pill Style */
+        .source-list {
+            font-size: 12px;
+            color: #888;
+        }
+        .source-link {
+            display: inline-block;
+            background-color: #f0f4f8;
+            color: #3498db;
+            padding: 4px 10px;
+            border-radius: 12px;
+            text-decoration: none;
+            margin-right: 5px;
+            margin-bottom: 5px;
+            font-weight: 500;
+        }
+        .source-link:hover {
+            background-color: #e1e8ed;
+        }
+
+        /* Error Message */
+        .error-message {
+            color: #e74c3c;
+            font-style: italic;
+        }
+
+        /* Footer */
+        .footer {
+            text-align: center;
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid #eee;
+            color: #999999;
+            font-size: 13px;
+        }
+        .footer p {
+            margin: 5px 0;
+        }
+        .footer a {
+            color: #3498db;
+            text-decoration: none;
+        }
+        .footer a:hover {
+            text-decoration: underline;
+        }
+        
+        /* Mobile */
+        @media only screen and (max-width: 620px) {
+            .container { padding: 10px; }
+            .content { padding: 20px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="content">
+            <h1>News Update<br><span style="font-size: 16px; color: #888; font-weight: normal;">{{ date }}</span></h1>
+            
+            {% for section in sections %}
+                <h2>{{ section.name }}</h2>
+                
+                {% if section.error %}
+                    <p class="error-message">{{ section.error }}</p>
+                {% else %}
+                    {% for item in section.items %}
+                    <div class="news-item">
+                        <span class="headline">{{ item.headline }}</span>
+                        <p class="details">{{ item.details }}</p>
+                        
+                        {% if item.sources %}
+                        <div class="source-list">
+                            {% for source in item.sources %}
+                            <a href="{{ source.url }}" class="source-link" target="_blank">
+                                {{ source.title }}
+                            </a>
+                            {% endfor %}
+                        </div>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                {% endif %}
+            {% endfor %}
+
+            <div class="footer">
+                <p>This email was automatically generated and sent by your News Updater service.</p>
+                <p><a href="{{ dashboard_url }}">Edit your news sections</a></p>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
