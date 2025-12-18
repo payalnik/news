@@ -20,8 +20,8 @@
         
         /* Layout */
         .container {
-            margin: 0 auto;
-            max-width: 600px; /* Standard email width */
+            margin: 0;
+            max-width: 800px; /* Wider standard email width */
             padding: 20px;
         }
         .content {
@@ -38,7 +38,7 @@
             font-weight: 700;
             margin-top: 0;
             margin-bottom: 24px;
-            text-align: center;
+            text-align: left;
             border-bottom: 2px solid #f0f0f0;
             padding-bottom: 20px;
         }
@@ -69,6 +69,7 @@
         .details {
             color: #555555;
             margin: 0 0 12px;
+            font-size: 18px; /* Increased font size */
         }
         
         /* Sources Pill Style */
@@ -99,7 +100,7 @@
 
         /* Footer */
         .footer {
-            text-align: center;
+            text-align: left;
             margin-top: 20px;
             padding-top: 20px;
             border-top: 1px solid #eee;
@@ -119,8 +120,8 @@
         
         /* Mobile */
         @media only screen and (max-width: 620px) {
-            .container { padding: 10px; }
-            .content { padding: 20px; }
+            .container { padding: 0; max-width: 100%; }
+            .content { padding: 15px; border-radius: 0; }
         }
     </style>
 </head>
