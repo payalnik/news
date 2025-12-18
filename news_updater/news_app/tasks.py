@@ -263,11 +263,8 @@ def send_news_update(user_profile_id):
                             # Fetch the raw content, passing the shared browser session
                             raw_content = fetch_url_content(url, browser_session=browser_session)
                             
-                            # Preprocess the content with LLM to remove irrelevant information
-                            preprocessed_content = preprocess_content_with_llm(raw_content, url)
-                            
-                            # Add the preprocessed content to the sources
-                            sources_content.append(f"Content from {url}:\n{preprocessed_content}")
+                            # Add the content to the sources directly (skipping redundant LLM preprocessing)
+                            sources_content.append(f"Content from {url}:\n{raw_content}")
                         except Exception as e:
                             logger.error(f"Error fetching content from {url}: {str(e)}")
                             sources_content.append(f"Error fetching content from {url}")
@@ -383,14 +380,41 @@ def send_news_update(user_profile_id):
                             summary_text = f"Unable to generate summary for {section.name} because the Gemini API is not available. Please check the source links below for the original content."
                             valid_json = False
                         else:
-                            # Use Gemini Flash 3 model
+                            # Use Gemini Flash 3 model with native JSON output
                             gemini_logger.info(f"Sending request to Gemini for section '{section.name}'")
                             gemini_logger.info(f"Full prompt to Gemini:\n{prompt}")
+                            
+                            # Define schema for the news items list
+                            news_items_schema = types.Schema(
+                                type=types.Type.ARRAY,
+                                items=types.Schema(
+                                    type=types.Type.OBJECT,
+                                    properties={
+                                        "headline": types.Schema(type=types.Type.STRING),
+                                        "details": types.Schema(type=types.Type.STRING),
+                                        "sources": types.Schema(
+                                            type=types.Type.ARRAY,
+                                            items=types.Schema(
+                                                type=types.Type.OBJECT,
+                                                properties={
+                                                    "url": types.Schema(type=types.Type.STRING),
+                                                    "title": types.Schema(type=types.Type.STRING),
+                                                },
+                                                required=["url", "title"]
+                                            )
+                                        ),
+                                        "confidence": types.Schema(type=types.Type.STRING),
+                                    },
+                                    required=["headline", "details", "sources", "confidence"]
+                                )
+                            )
                             
                             generate_content_config = types.GenerateContentConfig(
                                 thinking_config=types.ThinkingConfig(
                                     thinking_level="MINIMAL",
                                 ),
+                                response_mime_type="application/json",
+                                response_schema=news_items_schema,
                             )
 
                             response = client.models.generate_content(
@@ -410,28 +434,33 @@ def send_news_update(user_profile_id):
                                 pass
                         
                         # Try to parse the JSON response
-                        # Extract JSON array from the response if it's not a clean JSON
-                        gemini_logger.info(f"Attempting to parse JSON from Gemini response for section '{section.name}'")
-                        json_match = re.search(r'\[\s*\{.*\}\s*\]', summary_text, re.DOTALL)
+                        gemini_logger.info(f"Parsing JSON from Gemini response for section '{section.name}'")
                         
-                        if json_match:
-                            try:
-                                json_str = json_match.group(0)
-                                gemini_logger.info(f"Found JSON array in Gemini response, length: {len(json_str)} chars")
-                                news_items = json.loads(json_str)
-                                valid_json = True
-                                gemini_logger.info(f"Successfully parsed JSON, found {len(news_items)} news items")
-                            except json.JSONDecodeError as e:
+                        try:
+                            # With native JSON mode, response should be valid JSON
+                            news_items = json.loads(summary_text)
+                            valid_json = True
+                            gemini_logger.info(f"Successfully parsed JSON, found {len(news_items)} news items")
+                        except json.JSONDecodeError as e:
+                            # Fallback to regex extraction if native JSON failed (unlikely but possible)
+                            gemini_logger.warning(f"Direct JSON parse failed: {e}. Attempting regex extraction.")
+                            json_match = re.search(r'\[\s*\{.*\}\s*\]', summary_text, re.DOTALL)
+                            if json_match:
+                                try:
+                                    json_str = json_match.group(0)
+                                    news_items = json.loads(json_str)
+                                    valid_json = True
+                                    gemini_logger.info(f"Successfully parsed JSON via regex, found {len(news_items)} news items")
+                                except json.JSONDecodeError as e2:
+                                    valid_json = False
+                                    error_msg = f"Failed to parse JSON from Gemini response (regex): {e2}"
+                                    logger.error(error_msg)
+                                    gemini_logger.error(error_msg)
+                            else:
                                 valid_json = False
                                 error_msg = f"Failed to parse JSON from Gemini response: {e}"
                                 logger.error(error_msg)
-                                gemini_logger.error(error_msg)
-                                gemini_logger.error(f"JSON parsing error. Problematic JSON: {json_match.group(0)[:500]}...")
-                        else:
-                            valid_json = False
-                            error_msg = "No JSON array found in Gemini response"
-                            logger.error(error_msg)
-                            gemini_logger.error(f"{error_msg} for section '{section.name}'")
+                                gemini_logger.error(f"{error_msg} for section '{section.name}'")
                         
                         # Filter out duplicate news items
                         if valid_json:
