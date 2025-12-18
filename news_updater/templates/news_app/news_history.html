@@ -37,15 +37,17 @@
                                     </div>
                                     <p class="mb-1">{{ item.details }}</p>
                                     
-                                    {% if item.sources_list %}
-                                        <div class="mt-2">
+                                    <div class="mt-2">
+                                        {% if item.sources_list %}
                                             <small class="text-muted">Sources: 
                                                 {% for source in item.sources_list %}
                                                     <a href="{{ source.url }}" target="_blank" class="mr-2">{{ source.title }}</a>
                                                 {% endfor %}
                                             </small>
-                                        </div>
-                                    {% endif %}
+                                            <br>
+                                        {% endif %}
+                                        <small><a href="https://www.google.com/search?q={{ item.headline|urlencode }}&tbm=nws&tbs=qdr:d" target="_blank" class="text-decoration-none"><i class="fas fa-search"></i> Search on Google News (24h)</a></small>
+                                    </div>
                                     
                                     <div class="mt-2">
                                         <span class="badge 
