@@ -234,6 +234,12 @@ def send_news_update(user_profile_id):
                     sources_content = []
                     source_urls = section.get_sources_list()
                     
+                    # Limit to 7 sources and set warning flag if limit exceeded
+                    sources_limit_warning = False
+                    if len(source_urls) > 7:
+                        source_urls = source_urls[:7]
+                        sources_limit_warning = True
+                    
                     for url in source_urls:
                         try:
                             # Fetch the raw content, passing the shared browser session
@@ -352,7 +358,8 @@ def send_news_update(user_profile_id):
                     section_result = {
                         'name': section.name,
                         'items': [],
-                        'error': None
+                        'error': None,
+                        'sources_limit_warning': sources_limit_warning
                     }
                     
                     try:
