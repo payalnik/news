@@ -172,6 +172,8 @@ def process_html_content(html_content, url):
         'cnn.com': ['.article__content', '.zn-body__paragraph'],
         'bbc.com': ['article', '[data-component="text-block"]'],
         'reuters.com': ['.article-body__content__17Yit'],
+        'axios.com': ['[data-cy="story-text"]', '.story-text', 'div[class*="StoryText"]'],
+        'wired.com': ['[data-testid="BodyWrapper"]', 'div[class*="body__content"]', '.article__body', 'main article'],
     }
     
     # Check for site specific selectors
@@ -249,7 +251,8 @@ def fetch_with_requests(url):
         }
         response = requests.get(url, headers=headers, timeout=TIMEOUT)
         response.raise_for_status()
-        return response.text
+        # Return content (bytes) to let BeautifulSoup handle encoding detection
+        return response.content
     except Exception as e:
         logger.warning(f"Requests fetch failed: {str(e)}")
         return None
