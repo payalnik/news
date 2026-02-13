@@ -594,7 +594,7 @@ def send_news_update(user_profile_id):
             del os.environ["DJANGO_ALLOW_ASYNC_UNSAFE"]
 
 # Common RSS/Atom feed URL patterns to try for auto-discovery
-RSS_FEED_PATHS = ['/feed', '/rss', '/feeds/all.atom.xml', '/feed.xml', '/rss.xml', '/atom.xml', '/index.xml']
+RSS_FEED_PATHS = ['/feed', '/rss', '/rss/all', '/feeds/all.atom.xml', '/feed.xml', '/rss.xml', '/atom.xml', '/index.xml']
 
 
 def fetch_rss_feed(url):
@@ -660,7 +660,16 @@ def fetch_rss_feed(url):
     for feed_url in unique_feed_urls:
         try:
             fetch_logger.debug(f"Trying RSS feed: {feed_url}")
-            feed = feedparser.parse(feed_url)
+            # Fetch with requests (has timeout) instead of letting feedparser fetch (no timeout)
+            try:
+                feed_resp = requests.get(feed_url, timeout=5, headers={
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                })
+                if feed_resp.status_code != 200:
+                    continue
+                feed = feedparser.parse(feed_resp.content)
+            except requests.RequestException:
+                continue
 
             # Check if it's a valid feed with entries
             if feed.bozo and not feed.entries:
