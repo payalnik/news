@@ -12,7 +12,16 @@ import random
 import time
 import json
 import re
+from urllib.parse import urljoin
 from .browser_fetch import _fetch_with_browser, BrowserSession, process_html_content
+
+# Try to import feedparser for RSS support
+try:
+    import feedparser
+    FEEDPARSER_AVAILABLE = True
+except ImportError:
+    FEEDPARSER_AVAILABLE = False
+    logging.warning("feedparser module not available. RSS feed support will be disabled.")
 
 # Create specialized loggers
 logger = logging.getLogger(__name__)
@@ -130,30 +139,26 @@ def is_content_suitable_for_llm(text, url):
         logger.warning(f"Content from {url} is too short ({len(text) if text else 0} chars)")
         return False
     
-    # Check for common indicators of problematic content
+    # Check for strong indicators of problematic content
+    # Only includes indicators that genuinely signal scrape failure
     problematic_indicators = [
-        # HTML/JavaScript fragments that weren't properly cleaned
-        "<html", "<body", "<script", "<style", "function(", "var ", "const ", "let ", "document.getElementById",
-        # Indicators of cookie/paywall notices
-        "cookie policy", "accept cookies", "cookie settings", "privacy policy", "terms of service",
-        "subscribe now", "subscription required", "create an account", "sign in to continue",
-        # Indicators of anti-bot measures
-        "captcha", "robot", "automated access", "detection", "cloudflare",
-        # Indicators of error pages
-        "404 not found", "403 forbidden", "access denied", "page not available",
-        # Indicators of content not loading properly
-        "loading", "please wait", "enable javascript", "browser not supported"
+        # HTML/JavaScript fragments that weren't properly parsed
+        "<html", "<body", "<script", "<style",
+        # Indicators of access/paywall blocks
+        "captcha", "access denied", "403 forbidden", "404 not found",
+        "page not available", "enable javascript", "browser not supported",
+        "subscribe to continue", "subscription required", "sign in to continue",
     ]
-    
+
     # Count problematic indicators
     indicator_count = 0
     for indicator in problematic_indicators:
         if indicator in text.lower():
             indicator_count += 1
             logger.debug(f"Found problematic indicator '{indicator}' in content from {url}")
-    
-    # If too many problematic indicators, consider content unsuitable
-    if indicator_count >= 3:
+
+    # Require more hits before rejecting — tighter list means fewer false positives
+    if indicator_count >= 5:
         logger.warning(f"Content from {url} has {indicator_count} problematic indicators")
         return False
     
@@ -180,16 +185,6 @@ def is_content_suitable_for_llm(text, url):
             if frequency > 0.1 and count > 100:  # Word appears in >5% of text and >10 times
                 logger.warning(f"Content from {url} has suspicious repetition of '{word}' ({count} times, {frequency:.1%})")
                 return False
-    
-    # Check for domain-specific issues
-    domain = url.split('//')[1].split('/')[0]
-    
-    # MV Voice and related sites often have issues with content extraction
-    if any(site in domain for site in ['mv-voice.com', 'paloaltoonline.com', 'almanacnews.com']):
-        # For these sites, check for specific content patterns
-        if "article" not in text.lower() and "story" not in text.lower():
-            logger.warning(f"Content from {domain} doesn't appear to contain article text")
-            return False
     
     # If we've passed all checks, the content seems suitable
     return True
@@ -590,6 +585,133 @@ def send_news_update(user_profile_id):
         if "DJANGO_ALLOW_ASYNC_UNSAFE" in os.environ:
             del os.environ["DJANGO_ALLOW_ASYNC_UNSAFE"]
 
+# Common RSS/Atom feed URL patterns to try for auto-discovery
+RSS_FEED_PATHS = ['/feed', '/rss', '/feeds/all.atom.xml', '/feed.xml', '/rss.xml', '/atom.xml', '/index.xml']
+
+
+def fetch_rss_feed(url):
+    """
+    Try to fetch content via RSS/Atom feed for the given URL.
+
+    Attempts auto-discovery by:
+    1. Checking common feed URL patterns (/feed, /rss, etc.)
+    2. Fetching the page HTML and looking for <link rel="alternate"> feed tags
+
+    Args:
+        url: The URL of the site to find and fetch RSS for
+
+    Returns:
+        str: Formatted feed content, or None if no feed found
+    """
+    if not FEEDPARSER_AVAILABLE:
+        return None
+
+    fetch_logger.info(f"Attempting RSS feed discovery for {url}")
+
+    # Extract base URL (scheme + domain)
+    try:
+        parts = url.split('//')
+        scheme = parts[0]
+        domain = parts[1].split('/')[0]
+        base_url = f"{scheme}//{domain}"
+    except (IndexError, AttributeError):
+        return None
+
+    feed_urls_to_try = []
+
+    # Strategy 1: Try common feed URL patterns
+    for path in RSS_FEED_PATHS:
+        feed_urls_to_try.append(base_url + path)
+
+    # Strategy 2: Fetch the page and look for <link rel="alternate"> tags
+    try:
+        resp = requests.get(url, timeout=10, headers={
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        })
+        if resp.status_code == 200:
+            soup = BeautifulSoup(resp.text, 'html.parser')
+            for link in soup.find_all('link', rel='alternate'):
+                link_type = (link.get('type') or '').lower()
+                if 'rss' in link_type or 'atom' in link_type or 'xml' in link_type:
+                    href = link.get('href', '')
+                    if href:
+                        # Handle relative URLs
+                        feed_urls_to_try.insert(0, urljoin(url, href))
+    except Exception as e:
+        fetch_logger.debug(f"Could not fetch page for RSS discovery: {e}")
+
+    # Deduplicate while preserving order
+    seen = set()
+    unique_feed_urls = []
+    for u in feed_urls_to_try:
+        if u not in seen:
+            seen.add(u)
+            unique_feed_urls.append(u)
+
+    # Try each feed URL
+    for feed_url in unique_feed_urls:
+        try:
+            fetch_logger.debug(f"Trying RSS feed: {feed_url}")
+            feed = feedparser.parse(feed_url)
+
+            # Check if it's a valid feed with entries
+            if feed.bozo and not feed.entries:
+                continue
+            if not feed.entries:
+                continue
+
+            fetch_logger.info(f"Found valid RSS feed at {feed_url} with {len(feed.entries)} entries")
+
+            # Format feed entries into text content
+            lines = []
+            if feed.feed.get('title'):
+                lines.append(f"# {feed.feed.title}")
+                lines.append("")
+
+            for entry in feed.entries[:30]:  # Limit to 30 entries
+                title = entry.get('title', 'Untitled')
+                link = entry.get('link', '')
+                summary = entry.get('summary', entry.get('description', ''))
+
+                # Clean HTML from summary if present
+                if summary and '<' in summary:
+                    soup = BeautifulSoup(summary, 'html.parser')
+                    summary = soup.get_text(separator=' ').strip()
+
+                lines.append(f"## {title}")
+                if link:
+                    lines.append(f"Link: {link}")
+                if summary:
+                    # Truncate very long summaries
+                    if len(summary) > 1000:
+                        summary = summary[:1000] + "..."
+                    lines.append(summary)
+                lines.append("")
+
+            text = '\n'.join(lines)
+            if len(text) > 500:
+                fetch_logger.info(f"RSS feed content from {feed_url}: {len(text)} chars")
+                return text[:60000] + "..." if len(text) > 60000 else text
+
+        except Exception as e:
+            fetch_logger.debug(f"RSS feed attempt failed for {feed_url}: {e}")
+            continue
+
+    fetch_logger.info(f"No RSS feed found for {url}")
+    return None
+
+
+# Domains known to return 451 "Unavailable For Legal Reasons" from Jina Reader.
+# Skip Jina entirely for these to avoid wasted time (1-30s per attempt).
+JINA_BLOCKLIST = {
+    'mercurynews.com',
+    'theverge.com',
+    'wired.com',
+    'techcrunch.com',
+    'apnews.com',
+}
+
+
 def fetch_with_jina(url):
     """
     Fetch URL content using Jina Reader API (r.jina.ai)
@@ -618,21 +740,11 @@ def fetch_with_jina(url):
         response = requests.get(jina_url, headers=headers, timeout=30)
         response.raise_for_status()
         
-        # Process the response
-        content = response.text
-        
-        # Parse with BeautifulSoup to clean up the content
-        soup = BeautifulSoup(content, 'html.parser')
-        
-        # Remove script, style, and other non-content elements
-        for element in soup(["script", "style", "header", "footer", "nav", "aside"]):
-            element.extract()
-        
-        # Process the text
-        text = soup.get_text(separator='\n')
+        # Jina Reader returns markdown/text, not HTML — no BeautifulSoup needed
+        text = response.text
+        # Clean up excessive whitespace while preserving paragraph structure
         lines = (line.strip() for line in text.splitlines())
-        chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
-        text = '\n'.join(chunk for chunk in chunks if chunk)
+        text = '\n'.join(line for line in lines if line)
         
         elapsed_time = time.time() - start_time
         fetch_logger.info(f"Jina fetch completed in {elapsed_time:.2f} seconds")
@@ -660,8 +772,29 @@ def fetch_url_content(url, use_browser=None, use_jina=True, browser_session=None
     """
     fetch_logger.info(f"Starting fetch for URL: {url}, use_browser={use_browser}, use_jina={use_jina}, session={bool(browser_session)}")
     
-    # Try Jina first if enabled
-    if use_jina:
+    # Try RSS/Atom feed first — most reliable source when available
+    try:
+        rss_content = fetch_rss_feed(url)
+        if rss_content and len(rss_content) > 500:
+            fetch_logger.info(f"Successfully fetched RSS feed content for {url}, length: {len(rss_content)} chars")
+            if is_content_suitable_for_llm(rss_content, url):
+                fetch_logger.info(f"RSS content is suitable for LLM processing")
+                return rss_content
+            else:
+                fetch_logger.info(f"RSS content not suitable for LLM processing, trying other methods")
+        else:
+            fetch_logger.info(f"No RSS feed found for {url}, trying other methods")
+    except Exception as e:
+        fetch_logger.error(f"Error fetching RSS feed: {str(e)}")
+
+    # Check if the domain is on the Jina blocklist
+    domain = url.split('//')[1].split('/')[0]
+    jina_blocked = any(blocked in domain for blocked in JINA_BLOCKLIST)
+    if jina_blocked:
+        fetch_logger.info(f"Skipping Jina for {domain} (blocklisted — returns 451)")
+
+    # Try Jina first if enabled and not blocklisted
+    if use_jina and not jina_blocked:
         try:
             fetch_logger.info(f"Attempting to fetch {url} using Jina Reader")
             jina_content = fetch_with_jina(url)
@@ -680,8 +813,7 @@ def fetch_url_content(url, use_browser=None, use_jina=True, browser_session=None
             fetch_logger.error(f"Error using Jina Reader: {str(e)}")
     
     # Special handling for known problematic sites
-    domain = url.split('//')[1].split('/')[0]
-    problematic_sites = ['mv-voice.com', 'paloaltoonline.com', 'almanacnews.com']
+    problematic_sites = ['mv-voice.com', 'paloaltoonline.com', 'almanacnews.com', 'axios.com', 'wsj.com']
     
     if any(site in domain for site in problematic_sites):
         fetch_logger.info(f"Known problematic site detected: {domain}. Using browser fetch directly.")
