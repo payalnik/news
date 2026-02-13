@@ -83,28 +83,53 @@ class NewsItem(models.Model):
         """
         Check if this news item is similar to the provided headline and details.
         Returns True if they are similar, False otherwise.
-        
+
         The threshold parameter controls how similar the items need to be (0.0 to 1.0).
+        Uses headline similarity as the primary signal, with a secondary details
+        check to catch stories with different headlines about the same event.
         """
-        # Simple similarity check based on headline
+        # Exact headline match
         if self.headline.lower() == headline.lower():
             return True
-        
-        # More sophisticated similarity check could be implemented here
-        # For now, we'll use a simple word overlap approach
+
+        # Word overlap approach for headlines
         headline_words = set(self.headline.lower().split())
         new_headline_words = set(headline.lower().split())
-        
+
         # Calculate Jaccard similarity (intersection over union)
         if not headline_words or not new_headline_words:
             return False
-            
-        intersection = len(headline_words.intersection(new_headline_words))
-        union = len(headline_words.union(new_headline_words))
-        
-        similarity = intersection / union
-        
-        return similarity >= threshold
+
+        h_intersection = len(headline_words.intersection(new_headline_words))
+        h_union = len(headline_words.union(new_headline_words))
+        headline_similarity = h_intersection / h_union
+
+        if headline_similarity >= threshold:
+            return True
+
+        # Secondary check: if headlines are moderately similar, also compare details
+        # to catch stories with different headlines covering the same event
+        if headline_similarity >= 0.4 and details and self.details:
+            # Filter out very short common words for a more meaningful comparison
+            stop_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to',
+                         'of', 'for', 'with', 'by', 'is', 'are', 'was', 'were', 'that',
+                         'this', 'it', 'has', 'have', 'had', 'be', 'been', 'from', 'as'}
+            detail_words = set(self.details.lower().split()) - stop_words
+            new_detail_words = set(details.lower().split()) - stop_words
+
+            if detail_words and new_detail_words:
+                d_intersection = len(detail_words.intersection(new_detail_words))
+                d_union = len(detail_words.union(new_detail_words))
+                detail_similarity = d_intersection / d_union
+
+                # Combined score: weight headline more heavily.
+                # Use a lower threshold (0.5) than pure headline matching since
+                # this path is already gated on headline_similarity >= 0.4
+                combined = 0.6 * headline_similarity + 0.4 * detail_similarity
+                if combined >= 0.5:
+                    return True
+
+        return False
 
 class FetchLog(models.Model):
     STATUS_CHOICES = [

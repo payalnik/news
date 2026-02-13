@@ -253,12 +253,20 @@ def send_news_update(user_profile_id):
                     ).order_by('-created_at')[:100]
                     
                     # Format previous news items to include in the prompt
+                    # Only include headlines from the last 7 days to save tokens;
+                    # the full 100-item list is still used for post-generation is_similar_to() filtering.
                     previous_news_items_text = ""
                     if recent_news_items.exists():
-                        previous_news_items_text = "PREVIOUSLY REPORTED NEWS ITEMS (DO NOT REPEAT UNLESS SIGNIFICANT NEW DEVELOPMENTS):\n\n"
-                        for idx, item in enumerate(recent_news_items, 1):
-                            previous_news_items_text += f"{idx}. Headline: {item.headline}\n"
-                            previous_news_items_text += f"   Details: {item.details[:200]}{'...' if len(item.details) > 200 else ''}\n\n"
+                        from datetime import timedelta
+                        seven_days_ago = timezone.now() - timedelta(days=7)
+                        recent_headlines = [
+                            item.headline for item in recent_news_items
+                            if item.created_at >= seven_days_ago
+                        ]
+                        if recent_headlines:
+                            previous_news_items_text = "PREVIOUSLY REPORTED NEWS ITEMS (DO NOT REPEAT UNLESS SIGNIFICANT NEW DEVELOPMENTS):\n\n"
+                            for headline in recent_headlines:
+                                previous_news_items_text += f"- {headline}\n"
                     
                     # Generate summary using Gemini
                     joined_sources = "\n\n".join(sources_content)
@@ -465,13 +473,13 @@ def send_news_update(user_profile_id):
                                 if not is_duplicate:
                                     filtered_news_items.append(item)
                             
-                            # Replace the original news_items with the filtered list
-                            news_items = filtered_news_items
-                            
                             # Log how many items were filtered out
                             filtered_count = len(news_items) - len(filtered_news_items)
                             if filtered_count > 0:
                                 logger.info(f"Filtered out {filtered_count} duplicate news items for section {section.name}")
+
+                            # Replace the original news_items with the filtered list
+                            news_items = filtered_news_items
                         
                         if valid_json:
                             # Process and store news items
