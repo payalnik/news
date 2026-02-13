@@ -14,6 +14,8 @@
 - `problematic_sites` list for domains that need browser-first fetch
 - `feedparser` used for RSS/Atom feed discovery and parsing
 - **Never call `feedparser.parse(url)` with a URL directly** — it has no timeout and will hang on slow sites. Always fetch with `requests.get(url, timeout=...)` first, then pass the content to `feedparser.parse(response.content)`
+- RSS discovery order: `<link rel="alternate">` tags first (authoritative), then common paths as fallback with early exit after 3 misses
+- Skip `/comments/` feed URLs — they contain user comments, not articles (e.g. mercurynews.com)
 
 ## Frontend / Templates
 - **Base template**: `templates/base.html` — loads Bootstrap 5, Bootstrap Icons, Google Fonts (Inter), custom `static/css/style.css`
