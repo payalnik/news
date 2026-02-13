@@ -44,6 +44,9 @@
 - **Venv at `/var/www/news/venv/`** — always use `/var/www/news/venv/bin/pip` to install packages, NOT bare `pip`/`pip3` (which installs to system Python at `/usr`)
 - Requirements in `/var/www/news/requirements.txt`
 
+## Workflow Rules
+- **Always update CLAUDE.md with what you learned** after completing a task — document new patterns, gotchas, or conventions discovered
+- **Always git commit and push after completing changes** — commit with a clear message, then push to origin/main
+
 ## Git
 - Remote is HTTPS (`https://github.com/payalnik/news.git`)
-- **Always git commit and push after completing changes** — commit with a clear message, then push to origin/main
