@@ -597,16 +597,63 @@ def send_news_update(user_profile_id):
 RSS_FEED_PATHS = ['/feed', '/rss', '/rss/all', '/feeds/all.atom.xml', '/feed.xml', '/rss.xml', '/atom.xml', '/index.xml']
 
 
+def _try_parse_feed(feed_url):
+    """Fetch a feed URL with timeout and parse it. Returns parsed feed or None."""
+    try:
+        feed_resp = requests.get(feed_url, timeout=5, headers={
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        })
+        if feed_resp.status_code != 200:
+            return None
+        feed = feedparser.parse(feed_resp.content)
+        if feed.entries:
+            return feed
+    except requests.RequestException:
+        pass
+    return None
+
+
+def _format_feed(feed, feed_url):
+    """Format a parsed feed into text content. Returns text or None if too short."""
+    lines = []
+    if feed.feed.get('title'):
+        lines.append(f"# {feed.feed.title}")
+        lines.append("")
+
+    for entry in feed.entries[:30]:
+        title = entry.get('title', 'Untitled')
+        link = entry.get('link', '')
+        summary = entry.get('summary', entry.get('description', ''))
+
+        if summary and '<' in summary:
+            soup = BeautifulSoup(summary, 'html.parser')
+            summary = soup.get_text(separator=' ').strip()
+
+        lines.append(f"## {title}")
+        if link:
+            lines.append(f"Link: {link}")
+        if summary:
+            if len(summary) > 1000:
+                summary = summary[:1000] + "..."
+            lines.append(summary)
+        lines.append("")
+
+    text = '\n'.join(lines)
+    if len(text) > 500:
+        fetch_logger.info(f"RSS feed content from {feed_url}: {len(text)} chars")
+        return text[:60000] + "..." if len(text) > 60000 else text
+    return None
+
+
 def fetch_rss_feed(url):
     """
     Try to fetch content via RSS/Atom feed for the given URL.
 
-    Attempts auto-discovery by:
-    1. Checking common feed URL patterns (/feed, /rss, etc.)
-    2. Fetching the page HTML and looking for <link rel="alternate"> feed tags
-
-    Args:
-        url: The URL of the site to find and fetch RSS for
+    Discovery strategy (fast path first):
+    1. Fetch the page HTML and look for <link rel="alternate"> feed tags
+       - If found, try ONLY those (authoritative, skip common paths)
+    2. Fall back to trying common feed URL patterns (/feed, /rss, etc.)
+       - Give up after 3 consecutive misses
 
     Returns:
         str: Formatted feed content, or None if no feed found
@@ -614,6 +661,7 @@ def fetch_rss_feed(url):
     if not FEEDPARSER_AVAILABLE:
         return None
 
+    start_time = time.time()
     fetch_logger.info(f"Attempting RSS feed discovery for {url}")
 
     # Extract base URL (scheme + domain)
@@ -625,13 +673,8 @@ def fetch_rss_feed(url):
     except (IndexError, AttributeError):
         return None
 
-    feed_urls_to_try = []
-
-    # Strategy 1: Try common feed URL patterns
-    for path in RSS_FEED_PATHS:
-        feed_urls_to_try.append(base_url + path)
-
-    # Strategy 2: Fetch the page and look for <link rel="alternate"> tags
+    # Strategy 1: Fetch page and look for <link rel="alternate"> tags (authoritative)
+    link_tag_feeds = []
     try:
         resp = requests.get(url, timeout=10, headers={
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
@@ -643,78 +686,59 @@ def fetch_rss_feed(url):
                 if 'rss' in link_type or 'atom' in link_type or 'xml' in link_type:
                     href = link.get('href', '')
                     if href:
-                        # Handle relative URLs
-                        feed_urls_to_try.insert(0, urljoin(url, href))
+                        full_url = urljoin(url, href)
+                        # Skip comment feeds — they contain user comments, not articles
+                        if '/comments' in full_url:
+                            fetch_logger.debug(f"Skipping comment feed: {full_url}")
+                            continue
+                        link_tag_feeds.append(full_url)
     except Exception as e:
         fetch_logger.debug(f"Could not fetch page for RSS discovery: {e}")
 
-    # Deduplicate while preserving order
-    seen = set()
-    unique_feed_urls = []
-    for u in feed_urls_to_try:
-        if u not in seen:
-            seen.add(u)
-            unique_feed_urls.append(u)
-
-    # Try each feed URL
-    for feed_url in unique_feed_urls:
-        try:
-            fetch_logger.debug(f"Trying RSS feed: {feed_url}")
-            # Fetch with requests (has timeout) instead of letting feedparser fetch (no timeout)
-            try:
-                feed_resp = requests.get(feed_url, timeout=5, headers={
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-                })
-                if feed_resp.status_code != 200:
-                    continue
-                feed = feedparser.parse(feed_resp.content)
-            except requests.RequestException:
+    # If we found <link> feeds, try ONLY those (they're authoritative)
+    if link_tag_feeds:
+        seen = set()
+        for feed_url in link_tag_feeds:
+            if feed_url in seen:
                 continue
+            seen.add(feed_url)
+            fetch_logger.debug(f"Trying <link> tag feed: {feed_url}")
+            feed = _try_parse_feed(feed_url)
+            if feed:
+                fetch_logger.info(f"Found valid RSS feed at {feed_url} with {len(feed.entries)} entries")
+                result = _format_feed(feed, feed_url)
+                if result:
+                    return result
+        # <link> feeds didn't work out, fall through to common paths
+        fetch_logger.debug(f"<link> tag feeds found but none had usable content")
 
-            # Check if it's a valid feed with entries
-            if feed.bozo and not feed.entries:
-                continue
-            if not feed.entries:
-                continue
-
-            fetch_logger.info(f"Found valid RSS feed at {feed_url} with {len(feed.entries)} entries")
-
-            # Format feed entries into text content
-            lines = []
-            if feed.feed.get('title'):
-                lines.append(f"# {feed.feed.title}")
-                lines.append("")
-
-            for entry in feed.entries[:30]:  # Limit to 30 entries
-                title = entry.get('title', 'Untitled')
-                link = entry.get('link', '')
-                summary = entry.get('summary', entry.get('description', ''))
-
-                # Clean HTML from summary if present
-                if summary and '<' in summary:
-                    soup = BeautifulSoup(summary, 'html.parser')
-                    summary = soup.get_text(separator=' ').strip()
-
-                lines.append(f"## {title}")
-                if link:
-                    lines.append(f"Link: {link}")
-                if summary:
-                    # Truncate very long summaries
-                    if len(summary) > 1000:
-                        summary = summary[:1000] + "..."
-                    lines.append(summary)
-                lines.append("")
-
-            text = '\n'.join(lines)
-            if len(text) > 500:
-                fetch_logger.info(f"RSS feed content from {feed_url}: {len(text)} chars")
-                return text[:60000] + "..." if len(text) > 60000 else text
-
-        except Exception as e:
-            fetch_logger.debug(f"RSS feed attempt failed for {feed_url}: {e}")
+    # Strategy 2: Try common feed URL patterns (give up after 3 consecutive misses)
+    consecutive_misses = 0
+    for path in RSS_FEED_PATHS:
+        feed_url = base_url + path
+        # Skip if already tried via <link> tags
+        if feed_url in (link_tag_feeds or []):
+            continue
+        # Skip comment feeds
+        if '/comments' in feed_url:
             continue
 
-    fetch_logger.info(f"No RSS feed found for {url}")
+        fetch_logger.debug(f"Trying common feed path: {feed_url}")
+        feed = _try_parse_feed(feed_url)
+        if feed:
+            fetch_logger.info(f"Found valid RSS feed at {feed_url} with {len(feed.entries)} entries")
+            result = _format_feed(feed, feed_url)
+            if result:
+                return result
+            consecutive_misses = 0
+        else:
+            consecutive_misses += 1
+            if consecutive_misses >= 3:
+                fetch_logger.debug(f"3 consecutive misses on common paths, giving up")
+                break
+
+    elapsed = time.time() - start_time
+    fetch_logger.info(f"No RSS feed found for {url} ({elapsed:.1f}s)")
     return None
 
 
