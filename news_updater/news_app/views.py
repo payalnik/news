@@ -133,8 +133,8 @@ def dashboard(request):
         
         try:
             # Convert to client timezone
-            import pytz
-            client_tz = pytz.timezone(client_timezone)
+            from zoneinfo import ZoneInfo
+            client_tz = ZoneInfo(client_timezone)
             local_dt = utc_dt.astimezone(client_tz)
             
             # Format as HH:MM
@@ -291,9 +291,9 @@ def update_time_slots(request):
                 
                 try:
                     # Make it timezone-aware using the client's timezone
-                    import pytz
-                    client_tz = pytz.timezone(client_timezone)
-                    local_dt = client_tz.localize(naive_dt)
+                    from zoneinfo import ZoneInfo
+                    client_tz = ZoneInfo(client_timezone)
+                    local_dt = naive_dt.replace(tzinfo=client_tz)
                     
                     # Convert to UTC
                     utc_dt = local_dt.astimezone(timezone.utc)

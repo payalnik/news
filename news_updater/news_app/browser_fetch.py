@@ -2,6 +2,9 @@ import logging
 import time
 import random
 import os
+
+# Set Playwright browser path before any playwright imports
+os.environ.setdefault('PLAYWRIGHT_BROWSERS_PATH', '/var/www/news/.playwright')
 import shutil
 import subprocess
 import signal
@@ -173,6 +176,7 @@ def process_html_content(html_content, url):
         'bbc.com': ['article', '[data-component="text-block"]'],
         'reuters.com': ['.article-body__content__17Yit'],
         'axios.com': ['[data-cy="story-text"]', '.story-text', 'div[class*="StoryText"]'],
+        'wsj.com': ['[data-testid="article-body-text"]', '.article-content', '.wsj-snippet-body', 'article'],
         'wired.com': ['[data-testid="BodyWrapper"]', 'div[class*="body__content"]', '.article__body', 'main article'],
     }
     

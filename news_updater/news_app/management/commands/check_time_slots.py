@@ -2,7 +2,7 @@ from django.core.management.base import BaseCommand
 from django.utils import timezone
 from news_app.models import TimeSlot, UserProfile
 from datetime import timedelta
-import pytz
+from zoneinfo import available_timezones
 
 class Command(BaseCommand):
     help = 'Check time slots enabled for scheduled emails'
@@ -123,5 +123,5 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS("\nTime zone information:"))
         self.stdout.write("-" * 80)
         self.stdout.write(f"Server time zone: {timezone.get_current_timezone_name()}")
-        self.stdout.write(f"Available time zones: {len(pytz.all_timezones)}")
+        self.stdout.write(f"Available time zones: {len(available_timezones())}")
         self.stdout.write("Note: All times are stored and processed in UTC")

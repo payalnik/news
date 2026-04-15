@@ -594,7 +594,7 @@ def send_news_update(user_profile_id):
             del os.environ["DJANGO_ALLOW_ASYNC_UNSAFE"]
 
 # Common RSS/Atom feed URL patterns to try for auto-discovery
-RSS_FEED_PATHS = ['/feed', '/rss', '/rss/all', '/feeds/all.atom.xml', '/feed.xml', '/rss.xml', '/atom.xml', '/index.xml']
+RSS_FEED_PATHS = ['/feed', '/rss', '/rss/all', '/feeds/all.atom.xml', '/feed.xml', '/rss.xml', '/atom.xml', '/index.xml', '/cnn/rss']
 
 
 def _try_parse_feed(feed_url):

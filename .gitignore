@@ -35,6 +35,7 @@ media
 .aider*
 .env
 venv/
+.playwright/
 env/
 ENV/
 
