@@ -98,7 +98,7 @@ def preprocess_content_with_llm(content, url):
         )
 
         response = client.models.generate_content(
-            model='gemini-3-flash-preview',
+            model='gemini-3.1-flash-lite-preview',
             contents=prompt,
             config=generate_content_config,
         )
@@ -410,7 +410,7 @@ def send_news_update(user_profile_id):
                             )
 
                             response = client.models.generate_content(
-                                model='gemini-3-flash-preview',
+                                model='gemini-3.1-flash-lite-preview',
                                 contents=prompt,
                                 config=generate_content_config,
                             )

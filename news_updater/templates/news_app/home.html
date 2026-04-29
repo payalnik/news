@@ -3,42 +3,46 @@
 {% block title %}News Updater - Personal AI News Briefing{% endblock %}
 
 {% block content %}
-<div class="px-4 py-5 my-5 text-center">
-    <h1 class="display-4 fw-bold text-body-emphasis">Your Personal AI News Briefing</h1>
-    <div class="col-lg-6 mx-auto">
-        <p class="lead mb-4">
-            Stop doomscrolling. Start knowing. Get a curated, AI-summarized digest of the news that matters to you, delivered straight to your inbox on your schedule. Powered by Gemini.
-        </p>
-        <div class="d-grid gap-2 d-sm-flex justify-content-sm-center mb-5">
-            <a href="{% url 'signup' %}" class="btn btn-primary btn-lg px-4 me-sm-3">Get Started for Free</a>
-            <a href="{% url 'login' %}" class="btn btn-outline-secondary btn-lg px-4">Log In</a>
-        </div>
+<div class="hero-section text-center">
+    <h1 class="fw-bold mb-3">Your Personal AI News Briefing</h1>
+    <p class="lead mb-4">
+        Stop doomscrolling. Start knowing. Get a curated, AI-summarized digest of the news that matters to you, delivered straight to your inbox on your schedule. Powered by Gemini.
+    </p>
+    <div class="d-grid gap-2 d-sm-flex justify-content-sm-center">
+        <a href="{% url 'signup' %}" class="btn btn-primary btn-lg px-4 me-sm-3">Get Started for Free</a>
+        <a href="{% url 'login' %}" class="btn btn-outline-secondary btn-lg px-4">Log In</a>
     </div>
 </div>
 
 <div class="container px-4 py-5" id="features">
-    <h2 class="pb-2 border-bottom text-center">How It Works</h2>
-    <div class="row g-4 py-5 row-cols-1 row-cols-lg-3">
+    <h2 class="pb-2 text-center mb-4" style="font-size:1.5rem;">How It Works</h2>
+    <div class="row g-4 row-cols-1 row-cols-lg-3">
         <div class="col">
-            <div class="d-inline-flex align-items-center justify-content-center text-bg-primary bg-gradient fs-2 mb-3 rounded-3" style="width: 3rem; height: 3rem;">
-                <i class="bi bi-person-plus"></i>
+            <div class="feature-card">
+                <div class="feature-icon">
+                    <i class="bi bi-person-plus"></i>
+                </div>
+                <h3>1. Sign Up</h3>
+                <p>Create your account in seconds. Verify your email to ensure secure delivery of your personalized briefings.</p>
             </div>
-            <h3 class="fs-2 text-body-emphasis">1. Sign Up</h3>
-            <p>Create your account in seconds. Verify your email to ensure secure delivery of your personalized briefings.</p>
         </div>
         <div class="col">
-            <div class="d-inline-flex align-items-center justify-content-center text-bg-primary bg-gradient fs-2 mb-3 rounded-3" style="width: 3rem; height: 3rem;">
-                <i class="bi bi-sliders"></i>
+            <div class="feature-card">
+                <div class="feature-icon">
+                    <i class="bi bi-sliders"></i>
+                </div>
+                <h3>2. Customize</h3>
+                <p>Define your news sections. Tell us what topics, sources, or specific websites you want to track. The AI does the rest.</p>
             </div>
-            <h3 class="fs-2 text-body-emphasis">2. Customize</h3>
-            <p>Define your news sections. Tell us what topics, sources, or specific websites you want to track. The AI does the rest.</p>
         </div>
         <div class="col">
-            <div class="d-inline-flex align-items-center justify-content-center text-bg-primary bg-gradient fs-2 mb-3 rounded-3" style="width: 3rem; height: 3rem;">
-                <i class="bi bi-clock"></i>
+            <div class="feature-card">
+                <div class="feature-icon">
+                    <i class="bi bi-clock"></i>
+                </div>
+                <h3>3. Schedule</h3>
+                <p>Set your delivery times. Morning coffee? Evening commute? Receive your concise summary exactly when you want it.</p>
             </div>
-            <h3 class="fs-2 text-body-emphasis">3. Schedule</h3>
-            <p>Set your delivery times. Morning coffee? Evening commute? Receive your concise summary exactly when you want it.</p>
         </div>
     </div>
 </div>
@@ -46,16 +50,15 @@
 <div class="container">
     <div class="row align-items-center g-5 py-5">
         <div class="col-lg-6">
-            <h2 class="display-5 fw-bold text-body-emphasis lh-1 mb-3">Stay informed, not overwhelmed.</h2>
-            <p class="lead">News Updater filters out the noise. Instead of visiting 10 different sites, get one clean email with the key takeaways from your favorite sources.</p>
+            <h2 class="display-6 fw-bold lh-1 mb-3">Stay informed, not overwhelmed.</h2>
+            <p class="lead" style="color: var(--gray-500);">News Updater filters out the noise. Instead of visiting 10 different sites, get one clean email with the key takeaways from your favorite sources.</p>
             <div class="d-grid gap-2 d-md-flex justify-content-md-start">
                 <a href="{% url 'signup' %}" class="btn btn-primary btn-lg px-4 me-md-2">Create Account</a>
             </div>
         </div>
         <div class="col-lg-6">
-             <!-- Placeholder for a future screenshot or graphic -->
-             <div class="p-5 border rounded-3 bg-body-tertiary text-center text-muted">
-                <p class="mb-0">Your Daily Briefing Preview</p>
+             <div class="preview-placeholder">
+                <p class="mb-2">Your Daily Briefing Preview</p>
                 <i class="bi bi-newspaper display-1"></i>
              </div>
         </div>

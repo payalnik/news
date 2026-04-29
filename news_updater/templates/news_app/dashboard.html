@@ -3,13 +3,13 @@
 {% block title %}Dashboard - News Updater{% endblock %}
 
 {% block content %}
-<div class="row mb-4">
+<div class="row mb-4 dashboard-header align-items-center">
     <div class="col-md-8">
-        <h1>Your News Dashboard</h1>
+        <h1><i class="bi bi-columns-gap me-2"></i>Your News Dashboard</h1>
     </div>
     <div class="col-md-4 text-end">
-        <a href="{% url 'news_history' %}" class="btn btn-info me-2">View News History</a>
-        <a href="{% url 'send_now' %}" class="btn btn-success">Send News Update Now</a>
+        <a href="{% url 'news_history' %}" class="btn btn-info me-2"><i class="bi bi-clock-history me-1"></i>History</a>
+        <a href="{% url 'send_now' %}" class="btn btn-success"><i class="bi bi-send me-1"></i>Send Now</a>
     </div>
 </div>
 
@@ -17,25 +17,23 @@
     <div class="col-md-8">
         <div class="card mb-4">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <h2 class="mb-0">Your News Sections</h2>
-                <a href="{% url 'add_news_section' %}" class="btn btn-primary btn-sm">Add Section</a>
+                <h2 class="mb-0" style="font-size:1.15rem;">Your News Sections</h2>
+                <a href="{% url 'add_news_section' %}" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg me-1"></i>Add Section</a>
             </div>
             <div class="card-body">
                 {% if news_sections %}
-                    {# Add id="news-section-list" for SortableJS #}
-                    <div class="list-group" id="news-section-list">
+                    <div id="news-section-list">
                         {% for section in news_sections %}
-                            {# Add data-id attribute and handle icon for SortableJS #}
-                            <div class="list-group-item" data-id="{{ section.id }}">
-                                <div class="d-flex w-100 justify-content-between">
-                                    <h5 class="mb-1"><i class="fas fa-grip-vertical me-2" style="cursor: grab;"></i> {{ section.name }}</h5>
-                                    <small>Created: {{ section.created_at|date:"M d, Y" }}</small>
+                            <div class="section-item" data-id="{{ section.id }}">
+                                <div class="d-flex w-100 justify-content-between align-items-start">
+                                    <h5 class="mb-1"><i class="bi bi-grip-vertical me-2" style="cursor: grab; color: var(--gray-400);"></i>{{ section.name }}</h5>
+                                    <small class="text-muted">{{ section.created_at|date:"M d, Y" }}</small>
                                 </div>
-                                <p class="mb-1" style="white-space: pre-line;"><strong>Sources:</strong> {{ section.sources }}</p>
-                                <p class="mb-1"><strong>Instructions:</strong> {{ section.prompt }}</p>
+                                <p class="section-sources mb-1"><strong>Sources:</strong> {{ section.sources }}</p>
+                                <p class="mb-1" style="font-size:0.9rem;"><strong>Instructions:</strong> {{ section.prompt }}</p>
                                 <div class="mt-2">
-                                    <a href="{% url 'edit_news_section' section.id %}" class="btn btn-sm btn-outline-primary">Edit</a>
-                                    <a href="{% url 'delete_news_section' section.id %}" class="btn btn-sm btn-outline-danger">Delete</a>
+                                    <a href="{% url 'edit_news_section' section.id %}" class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil me-1"></i>Edit</a>
+                                    <a href="{% url 'delete_news_section' section.id %}" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash me-1"></i>Delete</a>
                                 </div>
                             </div>
                         {% endfor %}
@@ -48,22 +46,20 @@
             </div>
         </div>
     </div>
-    
+
     <div class="col-md-4">
         <div class="card">
             <div class="card-header">
-                <h2 class="mb-0">Delivery Schedule</h2>
+                <h2 class="mb-0" style="font-size:1.15rem;"><i class="bi bi-calendar-week me-2"></i>Delivery Schedule</h2>
             </div>
             <div class="card-body">
-                <p>Select the times when you want to receive your news updates:</p>
+                <p style="font-size:0.9rem;">Select the times when you want to receive your news updates:</p>
                 <p class="text-muted small" id="timezone-info">Times are displayed in your local timezone.</p>
-                {# Original script moved to extra_js block #}
-                
+
                 <form method="post" action="{% url 'update_time_slots' %}">
                     {% csrf_token %}
-                    
+
                     <div class="accordion mb-3" id="timeSlotAccordion">
-                        <!-- Morning Time Slots -->
                         <div class="accordion-item">
                             <h2 class="accordion-header" id="morningHeading">
                                 <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#morningCollapse" aria-expanded="true" aria-controls="morningCollapse">
@@ -85,8 +81,7 @@
                                 </div>
                             </div>
                         </div>
-                        
-                        <!-- Afternoon Time Slots -->
+
                         <div class="accordion-item">
                             <h2 class="accordion-header" id="afternoonHeading">
                                 <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#afternoonCollapse" aria-expanded="false" aria-controls="afternoonCollapse">
@@ -108,8 +103,7 @@
                                 </div>
                             </div>
                         </div>
-                        
-                        <!-- Evening Time Slots -->
+
                         <div class="accordion-item">
                             <h2 class="accordion-header" id="eveningHeading">
                                 <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#eveningCollapse" aria-expanded="false" aria-controls="eveningCollapse">
@@ -131,8 +125,7 @@
                                 </div>
                             </div>
                         </div>
-                        
-                        <!-- Night Time Slots -->
+
                         <div class="accordion-item">
                             <h2 class="accordion-header" id="nightHeading">
                                 <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#nightCollapse" aria-expanded="false" aria-controls="nightCollapse">
@@ -155,7 +148,7 @@
                             </div>
                         </div>
                     </div>
-                    
+
                     <div class="d-grid">
                         <button type="submit" class="btn btn-primary">Update Schedule</button>
                     </div>
@@ -167,31 +160,26 @@
 {% endblock %}
 
 {% block extra_js %}
-{# Include SortableJS library #}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
-{# Include Font Awesome for handle icon #}
-<script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/js/all.min.js"></script>
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    // SortableJS initialization
     const list = document.getElementById('news-section-list');
     if (list) {
         new Sortable(list, {
             animation: 150,
-            handle: '.fa-grip-vertical', // Use the icon as the drag handle
+            handle: '.bi-grip-vertical',
             ghostClass: 'sortable-ghost',
             chosenClass: 'sortable-chosen',
             dragClass: 'sortable-drag',
             onEnd: function (evt) {
-                const itemOrder = this.toArray(); // Get the new order of data-ids
+                const itemOrder = this.toArray();
 
-                // Send the new order to the backend
-                fetch("{% url 'update_section_order' %}", { // Use Django URL template tag
+                fetch("{% url 'update_section_order' %}", {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'X-CSRFToken': '{{ csrf_token }}' // Include CSRF token
+                        'X-CSRFToken': '{{ csrf_token }}'
                     },
                     body: JSON.stringify({ order: itemOrder })
                 })
@@ -199,16 +187,14 @@ document.addEventListener('DOMContentLoaded', function() {
                 .then(data => {
                     if (data.status === 'success') {
                         console.log('Order updated successfully');
-                        // Show a temporary success message
                         const successMsg = document.createElement('div');
                         successMsg.className = 'alert alert-success alert-dismissible fade show mt-3';
                         successMsg.role = 'alert';
                         successMsg.innerHTML = 'Section order updated! <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>';
-                        // Insert after the card body containing the list
                         const cardBody = list.closest('.card-body');
                         if (cardBody) {
                             cardBody.parentNode.insertBefore(successMsg, cardBody.nextSibling);
-                        } else { // Fallback: insert after the list itself
+                        } else {
                             list.parentNode.insertBefore(successMsg, list.nextSibling);
                         }
                         setTimeout(() => {
@@ -216,7 +202,7 @@ document.addEventListener('DOMContentLoaded', function() {
                            if (alert) {
                                alert.close();
                            }
-                         }, 3000); // Remove after 3 seconds
+                         }, 3000);
                     } else {
                         console.error('Failed to update order:', data.message);
                         alert('Error updating section order. Please try again.');
@@ -230,7 +216,6 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    // Timezone script (moved here from original location)
     const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
     const timezoneInfo = document.getElementById('timezone-info');
     if (timezoneInfo) {
