@@ -46,10 +46,12 @@
 - **Custom CSS**: `static/css/style.css` — design system with CSS custom properties, indigo primary (`#4f46e5`)
 - `base.html` uses `{% load static %}` at top for the CSS link
 - **Navbar**: uses class `navbar-custom` (dark gradient), has brand icon, active link detection via `request.resolver_match.url_name`
-- **Footer**: `{{ year }}` context variable expected in footer — if it shows blank, a context processor may be needed
+- **Footer**: uses `{% now "Y" %}` for the year (no context variable needed)
 - **Auth pages** (login, signup, verify_email, password_reset*): use `auth-card-wrapper` + `auth-card` classes for centered card layout with `auth-icon-circle` header
-- **Dashboard sections**: styled with `section-item` class (left accent border), drag handle uses `bi-grip-vertical` (Bootstrap Icons), SortableJS handle selector is `.bi-grip-vertical`
-- **News history cards**: use `news-card` class with `confidence-high/medium/low` modifier for left border color; sources rendered as `source-pill` links
+- **Dashboard sections**: styled with `section-item` class (left accent border); the SortableJS drag handle is `.drag-handle` (an `<i class="bi bi-grip-vertical drag-handle">`). Sources shown as `.source-chip` (favicon via `google.com/s2/favicons?domain=`, domain from `NewsSection.get_source_domains()`); instructions truncated with `|truncatechars:140`
+- **Delivery schedule**: add-able dropdowns, NOT checkboxes/accordions. Each chosen time is a `<select name="time_slots">` (options from `views.TIME_CHOICES`, value `HH:MM` 24h, label 12h); JS clones `#time-slot-template` to add rows and removes via `.btn-remove-slot`. View reads `request.POST.getlist('time_slots')`, validates against `views.VALID_TIME_VALUES`. There is no `TimeSlotForm` anymore
+- **News history cards**: `news-card` (neutral left border); headline `.news-headline`, body `.news-details`, section label `.news-section-tag`; sources as `source-pill` links. **No `confidence`** — that field/UI was removed entirely (migration 0007); LLM self-confidence was unused and poorly calibrated. Don't reintroduce it
+- Timezone: `base.html` sets a `client_timezone` cookie AND injects a hidden input into `form[action*="time-slots"]` (note the hyphen — must match the `/update-time-slots/` URL); the view falls back cookie → server tz
 - **Form pages** (add/edit section): card with `p-4` body, icon in heading, no separate card-header
 - **Delete page**: uses `delete-warning-card` class with `delete-warning-icon` circle
 

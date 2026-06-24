@@ -15,8 +15,27 @@ from django.db import transaction
 
 from .models import UserProfile, NewsSection, TimeSlot, VerificationCode, NewsItem
 from django.core.paginator import Paginator
-from .forms import SignUpForm, VerificationForm, NewsSectionForm, TimeSlotForm
+from .forms import SignUpForm, VerificationForm, NewsSectionForm
 from .tasks import send_news_update
+
+logger = logging.getLogger(__name__)
+
+
+# Delivery-time options for the dashboard dropdowns: every 30 minutes, value in
+# 24h "HH:MM" (used for storage/validation), label in friendly 12h form.
+def _build_time_choices():
+    choices = []
+    for hour in range(24):
+        for minute in (0, 30):
+            value = f"{hour:02d}:{minute:02d}"
+            period = 'AM' if hour < 12 else 'PM'
+            display_hour = hour % 12 or 12
+            choices.append((value, f"{display_hour}:{minute:02d} {period}"))
+    return choices
+
+
+TIME_CHOICES = _build_time_choices()
+VALID_TIME_VALUES = {value for value, _ in TIME_CHOICES}
 
 def home(request):
     if request.user.is_authenticated:
@@ -148,22 +167,13 @@ def dashboard(request):
             local_dt = timezone.localtime(utc_dt)
             selected_slots.append(local_dt.strftime('%H:%M'))
     
-    # Organize selected slots by time of day
-    morning_slots = [slot for slot in selected_slots if 6 <= int(slot.split(':')[0]) < 12]
-    afternoon_slots = [slot for slot in selected_slots if 12 <= int(slot.split(':')[0]) < 18]
-    evening_slots = [slot for slot in selected_slots if 18 <= int(slot.split(':')[0]) < 24]
-    night_slots = [slot for slot in selected_slots if 0 <= int(slot.split(':')[0]) < 6]
-    
-    time_slot_form = TimeSlotForm(initial={
-        'morning_slots': morning_slots,
-        'afternoon_slots': afternoon_slots,
-        'evening_slots': evening_slots,
-        'night_slots': night_slots
-    })
-    
+    # Sort and de-duplicate the selected times for display in the dropdowns.
+    selected_slots = sorted(set(selected_slots))
+
     return render(request, 'news_app/dashboard.html', {
         'news_sections': news_sections,
-        'time_slot_form': time_slot_form,
+        'time_choices': TIME_CHOICES,
+        'selected_slots': selected_slots,
     })
 
 @login_required
@@ -264,64 +274,45 @@ def update_time_slots(request):
     user_profile = request.user.profile
     
     if request.method == 'POST':
-        form = TimeSlotForm(request.POST)
-        if form.is_valid():
-            # Get all selected time slots from all time periods
-            selected_slots = form.get_all_selected_slots()
-            
-            # Delete existing time slots
-            TimeSlot.objects.filter(user_profile=user_profile).delete()
-            
-            # Get client timezone from the form or cookie
-            client_timezone = request.POST.get('client_timezone')
-            if not client_timezone:
-                # Try to get from cookie
-                client_timezone = request.COOKIES.get('client_timezone')
-            
-            # Default to server timezone if client timezone is not available
-            if not client_timezone:
-                client_timezone = settings.TIME_ZONE
-                
-            # Create new time slots
-            for slot in selected_slots:
-                hour, minute = map(int, slot.split(':'))
-                
-                # Create a datetime object with today's date and the selected time
-                naive_dt = datetime.now().replace(hour=hour, minute=minute, second=0, microsecond=0)
-                
-                try:
-                    # Make it timezone-aware using the client's timezone
-                    from zoneinfo import ZoneInfo
-                    client_tz = ZoneInfo(client_timezone)
-                    local_dt = naive_dt.replace(tzinfo=client_tz)
-                    
-                    # Convert to UTC
-                    utc_dt = local_dt.astimezone(timezone.utc)
-                    
-                    # Extract the time component
-                    utc_time = utc_dt.time()
-                    
-                    # Create the time slot with the UTC time
-                    TimeSlot.objects.create(user_profile=user_profile, time=utc_time)
-                    
-                    # Log for debugging
-                    logger = logging.getLogger(__name__)
-                    logger.info(f"Created time slot: {hour}:{minute} in {client_timezone} -> {utc_time} UTC")
-                except Exception as e:
-                    # If there's an error with the timezone, fall back to the server's timezone
-                    logger = logging.getLogger(__name__)
-                    logger.error(f"Error converting timezone {client_timezone}: {str(e)}")
-                    
-                    # Fall back to server timezone
-                    local_dt = timezone.localtime(timezone.now()).replace(hour=hour, minute=minute, second=0, microsecond=0)
-                    if timezone.is_naive(local_dt):
-                        local_dt = timezone.make_aware(local_dt)
-                    utc_dt = local_dt.astimezone(timezone.utc)
-                    utc_time = utc_dt.time()
-                    TimeSlot.objects.create(user_profile=user_profile, time=utc_time)
-            
-            messages.success(request, 'Time slots updated successfully!')
-    
+        # The dashboard submits one <select name="time_slots"> per chosen time.
+        # Keep only valid, de-duplicated HH:MM values.
+        selected_slots = []
+        seen = set()
+        for value in request.POST.getlist('time_slots'):
+            if value in VALID_TIME_VALUES and value not in seen:
+                seen.add(value)
+                selected_slots.append(value)
+
+        # Replace the user's existing slots with the new selection.
+        TimeSlot.objects.filter(user_profile=user_profile).delete()
+
+        # Resolve the client's timezone (form field, then cookie, then server).
+        client_timezone = (request.POST.get('client_timezone')
+                           or request.COOKIES.get('client_timezone')
+                           or settings.TIME_ZONE)
+
+        for slot in selected_slots:
+            hour, minute = map(int, slot.split(':'))
+            naive_dt = datetime.now().replace(hour=hour, minute=minute, second=0, microsecond=0)
+            try:
+                # Interpret the picked time in the client's tz, store as UTC.
+                from zoneinfo import ZoneInfo
+                local_dt = naive_dt.replace(tzinfo=ZoneInfo(client_timezone))
+                utc_time = local_dt.astimezone(timezone.utc).time()
+                TimeSlot.objects.create(user_profile=user_profile, time=utc_time)
+                logger.info(f"Created time slot: {slot} in {client_timezone} -> {utc_time} UTC")
+            except Exception as e:
+                # Bad/unknown timezone: fall back to the server timezone.
+                logger.error(f"Error converting timezone {client_timezone}: {str(e)}")
+                local_dt = timezone.localtime(timezone.now()).replace(
+                    hour=hour, minute=minute, second=0, microsecond=0)
+                if timezone.is_naive(local_dt):
+                    local_dt = timezone.make_aware(local_dt)
+                utc_time = local_dt.astimezone(timezone.utc).time()
+                TimeSlot.objects.create(user_profile=user_profile, time=utc_time)
+
+        messages.success(request, 'Delivery schedule updated.')
+
     return redirect('dashboard')
 
 @login_required

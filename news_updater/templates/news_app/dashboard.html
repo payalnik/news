@@ -3,21 +3,19 @@
 {% block title %}Dashboard - News Updater{% endblock %}
 
 {% block content %}
-<div class="row mb-4 dashboard-header align-items-center">
-    <div class="col-md-8">
-        <h1><i class="bi bi-columns-gap me-2"></i>Your News Dashboard</h1>
-    </div>
-    <div class="col-md-4 text-end">
-        <a href="{% url 'news_history' %}" class="btn btn-info me-2"><i class="bi bi-clock-history me-1"></i>History</a>
-        <a href="{% url 'send_now' %}" class="btn btn-success"><i class="bi bi-send me-1"></i>Send Now</a>
+<div class="dashboard-header d-flex flex-wrap align-items-center justify-content-between">
+    <h1 class="mb-0"><i class="bi bi-columns-gap me-2"></i>Your News Dashboard</h1>
+    <div class="dashboard-actions">
+        <a href="{% url 'news_history' %}" class="btn btn-outline-secondary"><i class="bi bi-clock-history me-1"></i>History</a>
+        <a href="{% url 'send_now' %}" class="btn btn-primary"><i class="bi bi-send me-1"></i>Send Now</a>
     </div>
 </div>
 
-<div class="row">
-    <div class="col-md-8">
-        <div class="card mb-4">
+<div class="row g-4">
+    <div class="col-lg-8">
+        <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <h2 class="mb-0" style="font-size:1.15rem;">Your News Sections</h2>
+                <h2 class="card-title-sm mb-0">News Sections</h2>
                 <a href="{% url 'add_news_section' %}" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg me-1"></i>Add Section</a>
             </div>
             <div class="card-body">
@@ -25,201 +23,147 @@
                     <div id="news-section-list">
                         {% for section in news_sections %}
                             <div class="section-item" data-id="{{ section.id }}">
-                                <div class="d-flex w-100 justify-content-between align-items-start">
-                                    <h5 class="mb-1"><i class="bi bi-grip-vertical me-2" style="cursor: grab; color: var(--gray-400);"></i>{{ section.name }}</h5>
-                                    <small class="text-muted">{{ section.created_at|date:"M d, Y" }}</small>
+                                <div class="d-flex align-items-center justify-content-between">
+                                    <h3 class="section-name mb-0">
+                                        <i class="bi bi-grip-vertical drag-handle me-2"></i>{{ section.name }}
+                                    </h3>
+                                    <div class="section-buttons">
+                                        <a href="{% url 'edit_news_section' section.id %}" class="btn btn-sm btn-outline-secondary" aria-label="Edit"><i class="bi bi-pencil"></i></a>
+                                        <a href="{% url 'delete_news_section' section.id %}" class="btn btn-sm btn-outline-danger" aria-label="Delete"><i class="bi bi-trash"></i></a>
+                                    </div>
                                 </div>
-                                <p class="section-sources mb-1"><strong>Sources:</strong> {{ section.sources }}</p>
-                                <p class="mb-1" style="font-size:0.9rem;"><strong>Instructions:</strong> {{ section.prompt }}</p>
-                                <div class="mt-2">
-                                    <a href="{% url 'edit_news_section' section.id %}" class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil me-1"></i>Edit</a>
-                                    <a href="{% url 'delete_news_section' section.id %}" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash me-1"></i>Delete</a>
+
+                                <div class="source-chips">
+                                    {% for domain in section.get_source_domains %}
+                                        <span class="source-chip">
+                                            <img src="https://www.google.com/s2/favicons?domain={{ domain }}&sz=32" alt="" width="14" height="14" loading="lazy">
+                                            {{ domain }}
+                                        </span>
+                                    {% empty %}
+                                        <span class="text-muted small">No sources added</span>
+                                    {% endfor %}
                                 </div>
+
+                                {% if section.prompt %}
+                                    <p class="section-instructions mb-0">{{ section.prompt|truncatechars:140 }}</p>
+                                {% endif %}
                             </div>
                         {% endfor %}
                     </div>
+                    <p class="text-muted small mt-2 mb-0"><i class="bi bi-grip-vertical me-1"></i>Drag sections to reorder.</p>
                 {% else %}
-                    <div class="alert alert-info">
-                        You haven't added any news sections yet. <a href="{% url 'add_news_section' %}">Add your first section</a> to get started.
+                    <div class="empty-state">
+                        <i class="bi bi-collection"></i>
+                        <p class="mb-2">You haven't added any news sections yet.</p>
+                        <a href="{% url 'add_news_section' %}" class="btn btn-primary btn-sm">Add your first section</a>
                     </div>
                 {% endif %}
             </div>
         </div>
     </div>
 
-    <div class="col-md-4">
+    <div class="col-lg-4">
         <div class="card">
             <div class="card-header">
-                <h2 class="mb-0" style="font-size:1.15rem;"><i class="bi bi-calendar-week me-2"></i>Delivery Schedule</h2>
+                <h2 class="card-title-sm mb-0"><i class="bi bi-calendar-week me-2"></i>Delivery Schedule</h2>
             </div>
             <div class="card-body">
-                <p style="font-size:0.9rem;">Select the times when you want to receive your news updates:</p>
-                <p class="text-muted small" id="timezone-info">Times are displayed in your local timezone.</p>
+                <p class="text-muted small mb-3" id="timezone-info">Choose when to receive your news. Times are in your local timezone.</p>
 
                 <form method="post" action="{% url 'update_time_slots' %}">
                     {% csrf_token %}
 
-                    <div class="accordion mb-3" id="timeSlotAccordion">
-                        <div class="accordion-item">
-                            <h2 class="accordion-header" id="morningHeading">
-                                <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#morningCollapse" aria-expanded="true" aria-controls="morningCollapse">
-                                    {{ time_slot_form.morning_slots.label }}
-                                </button>
-                            </h2>
-                            <div id="morningCollapse" class="accordion-collapse collapse show" aria-labelledby="morningHeading" data-bs-parent="#timeSlotAccordion">
-                                <div class="accordion-body">
-                                    <div class="time-slots-container">
-                                        {% for choice in time_slot_form.morning_slots %}
-                                            <div class="form-check">
-                                                {{ choice.tag }}
-                                                <label class="form-check-label" for="{{ choice.id_for_label }}">
-                                                    {{ choice.choice_label }}
-                                                </label>
-                                            </div>
-                                        {% endfor %}
-                                    </div>
-                                </div>
+                    <div id="time-slot-list">
+                        {% for slot in selected_slots %}
+                            <div class="time-slot-row">
+                                <select name="time_slots" class="form-select form-select-sm">
+                                    {% for value, label in time_choices %}
+                                        <option value="{{ value }}" {% if value == slot %}selected{% endif %}>{{ label }}</option>
+                                    {% endfor %}
+                                </select>
+                                <button type="button" class="btn-remove-slot" aria-label="Remove time">&times;</button>
                             </div>
-                        </div>
-
-                        <div class="accordion-item">
-                            <h2 class="accordion-header" id="afternoonHeading">
-                                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#afternoonCollapse" aria-expanded="false" aria-controls="afternoonCollapse">
-                                    {{ time_slot_form.afternoon_slots.label }}
-                                </button>
-                            </h2>
-                            <div id="afternoonCollapse" class="accordion-collapse collapse" aria-labelledby="afternoonHeading" data-bs-parent="#timeSlotAccordion">
-                                <div class="accordion-body">
-                                    <div class="time-slots-container">
-                                        {% for choice in time_slot_form.afternoon_slots %}
-                                            <div class="form-check">
-                                                {{ choice.tag }}
-                                                <label class="form-check-label" for="{{ choice.id_for_label }}">
-                                                    {{ choice.choice_label }}
-                                                </label>
-                                            </div>
-                                        {% endfor %}
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="accordion-item">
-                            <h2 class="accordion-header" id="eveningHeading">
-                                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#eveningCollapse" aria-expanded="false" aria-controls="eveningCollapse">
-                                    {{ time_slot_form.evening_slots.label }}
-                                </button>
-                            </h2>
-                            <div id="eveningCollapse" class="accordion-collapse collapse" aria-labelledby="eveningHeading" data-bs-parent="#timeSlotAccordion">
-                                <div class="accordion-body">
-                                    <div class="time-slots-container">
-                                        {% for choice in time_slot_form.evening_slots %}
-                                            <div class="form-check">
-                                                {{ choice.tag }}
-                                                <label class="form-check-label" for="{{ choice.id_for_label }}">
-                                                    {{ choice.choice_label }}
-                                                </label>
-                                            </div>
-                                        {% endfor %}
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="accordion-item">
-                            <h2 class="accordion-header" id="nightHeading">
-                                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#nightCollapse" aria-expanded="false" aria-controls="nightCollapse">
-                                    {{ time_slot_form.night_slots.label }}
-                                </button>
-                            </h2>
-                            <div id="nightCollapse" class="accordion-collapse collapse" aria-labelledby="nightHeading" data-bs-parent="#timeSlotAccordion">
-                                <div class="accordion-body">
-                                    <div class="time-slots-container">
-                                        {% for choice in time_slot_form.night_slots %}
-                                            <div class="form-check">
-                                                {{ choice.tag }}
-                                                <label class="form-check-label" for="{{ choice.id_for_label }}">
-                                                    {{ choice.choice_label }}
-                                                </label>
-                                            </div>
-                                        {% endfor %}
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
+                        {% endfor %}
                     </div>
 
-                    <div class="d-grid">
-                        <button type="submit" class="btn btn-primary">Update Schedule</button>
+                    <button type="button" id="add-time-slot" class="btn btn-sm btn-outline-primary mt-1">
+                        <i class="bi bi-plus-lg me-1"></i>Add time
+                    </button>
+
+                    <div class="d-grid mt-3">
+                        <button type="submit" class="btn btn-primary">Save schedule</button>
                     </div>
                 </form>
             </div>
         </div>
     </div>
 </div>
+
+<template id="time-slot-template">
+    <div class="time-slot-row">
+        <select name="time_slots" class="form-select form-select-sm">
+            {% for value, label in time_choices %}
+                <option value="{{ value }}">{{ label }}</option>
+            {% endfor %}
+        </select>
+        <button type="button" class="btn-remove-slot" aria-label="Remove time">&times;</button>
+    </div>
+</template>
 {% endblock %}
 
 {% block extra_js %}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
-
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-    const list = document.getElementById('news-section-list');
-    if (list) {
-        new Sortable(list, {
+document.addEventListener('DOMContentLoaded', function () {
+    // --- Delivery time dropdowns: add / remove rows ---
+    const list = document.getElementById('time-slot-list');
+    const template = document.getElementById('time-slot-template');
+    const addBtn = document.getElementById('add-time-slot');
+
+    if (addBtn && list && template) {
+        addBtn.addEventListener('click', function () {
+            list.appendChild(template.content.cloneNode(true));
+        });
+        list.addEventListener('click', function (e) {
+            const remove = e.target.closest('.btn-remove-slot');
+            if (remove) {
+                remove.closest('.time-slot-row').remove();
+            }
+        });
+    }
+
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const tzInfo = document.getElementById('timezone-info');
+    if (tzInfo) {
+        tzInfo.textContent = `Choose when to receive your news. Times are in your local timezone (${tz}).`;
+    }
+
+    // --- Drag-to-reorder sections ---
+    const sectionList = document.getElementById('news-section-list');
+    if (sectionList) {
+        new Sortable(sectionList, {
             animation: 150,
-            handle: '.bi-grip-vertical',
+            handle: '.drag-handle',
             ghostClass: 'sortable-ghost',
             chosenClass: 'sortable-chosen',
-            dragClass: 'sortable-drag',
-            onEnd: function (evt) {
-                const itemOrder = this.toArray();
-
+            onEnd: function () {
                 fetch("{% url 'update_section_order' %}", {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                         'X-CSRFToken': '{{ csrf_token }}'
                     },
-                    body: JSON.stringify({ order: itemOrder })
+                    body: JSON.stringify({ order: this.toArray() })
                 })
-                .then(response => response.json())
+                .then(r => r.json())
                 .then(data => {
-                    if (data.status === 'success') {
-                        console.log('Order updated successfully');
-                        const successMsg = document.createElement('div');
-                        successMsg.className = 'alert alert-success alert-dismissible fade show mt-3';
-                        successMsg.role = 'alert';
-                        successMsg.innerHTML = 'Section order updated! <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>';
-                        const cardBody = list.closest('.card-body');
-                        if (cardBody) {
-                            cardBody.parentNode.insertBefore(successMsg, cardBody.nextSibling);
-                        } else {
-                            list.parentNode.insertBefore(successMsg, list.nextSibling);
-                        }
-                        setTimeout(() => {
-                           const alert = bootstrap.Alert.getOrCreateInstance(successMsg);
-                           if (alert) {
-                               alert.close();
-                           }
-                         }, 3000);
-                    } else {
-                        console.error('Failed to update order:', data.message);
+                    if (data.status !== 'success') {
                         alert('Error updating section order. Please try again.');
                     }
                 })
-                .catch(error => {
-                    console.error('Error sending order update:', error);
-                    alert('Error updating section order. Please check your connection and try again.');
-                });
+                .catch(() => alert('Error updating section order. Please check your connection.'));
             }
         });
-    }
-
-    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    const timezoneInfo = document.getElementById('timezone-info');
-    if (timezoneInfo) {
-        timezoneInfo.textContent = `Times are displayed in your local timezone (${timezone}).`;
     }
 });
 </script>

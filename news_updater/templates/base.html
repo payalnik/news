@@ -60,7 +60,7 @@
 
     <footer class="site-footer">
         <div class="container">
-            <span>&copy; {{ year }} News Updater</span>
+            <span>&copy; {% now "Y" %} News Updater</span>
         </div>
     </footer>
 
@@ -72,7 +72,7 @@
             expirationDate.setDate(expirationDate.getDate() + 30);
             document.cookie = `client_timezone=${timezone}; expires=${expirationDate.toUTCString()}; path=/; SameSite=Lax`;
 
-            const forms = document.querySelectorAll('form[action*="time_slots"]');
+            const forms = document.querySelectorAll('form[action*="time-slots"]');
             forms.forEach(form => {
                 let hiddenInput = form.querySelector('input[name="client_timezone"]');
                 if (!hiddenInput) {

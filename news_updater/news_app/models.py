@@ -35,6 +35,18 @@ class NewsSection(models.Model):
         # Add https:// prefix if not present
         return [source if source.startswith(('http://', 'https://')) else f'https://{source}' for source in sources]
 
+    def get_source_domains(self):
+        """Unique, de-prefixed hostnames of this section's sources (for display)."""
+        from urllib.parse import urlparse
+        domains = []
+        for url in self.get_sources_list():
+            netloc = urlparse(url).netloc.lower()
+            if netloc.startswith('www.'):
+                netloc = netloc[4:]
+            if netloc and netloc not in domains:
+                domains.append(netloc)
+        return domains
+
 class TimeSlot(models.Model):
     user_profile = models.ForeignKey(UserProfile, on_delete=models.CASCADE, related_name='time_slots')
     time = models.TimeField(help_text="Time to send the newsletter")
@@ -64,7 +76,6 @@ class NewsItem(models.Model):
     headline = models.CharField(max_length=255)
     details = models.TextField()
     sources = models.TextField()  # Stored as JSON
-    confidence = models.CharField(max_length=10, default='medium')
     # Dedup support: exact-match hash of headline+details and a cached
     # embedding vector (JSON list of floats) for semantic similarity.
     content_hash = models.CharField(max_length=64, blank=True, default='', db_index=True)

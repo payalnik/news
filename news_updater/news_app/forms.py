@@ -40,53 +40,6 @@ class NewsSectionForm(forms.ModelForm):
             
         return sources_text
 
-class TimeSlotForm(forms.Form):
-    # Morning: 6:00 AM - 11:30 AM
-    morning_slots = forms.MultipleChoiceField(
-        choices=[(f"{hour:02d}:{minute:02d}", f"{hour:02d}:{minute:02d}") 
-                for hour in range(6, 12) 
-                for minute in (0, 30)],
-        widget=forms.CheckboxSelectMultiple,
-        required=False,
-        label="Morning (6:00 - 11:30)"
-    )
-    
-    # Afternoon: 12:00 PM - 5:30 PM
-    afternoon_slots = forms.MultipleChoiceField(
-        choices=[(f"{hour:02d}:{minute:02d}", f"{hour:02d}:{minute:02d}") 
-                for hour in range(12, 18) 
-                for minute in (0, 30)],
-        widget=forms.CheckboxSelectMultiple,
-        required=False,
-        label="Afternoon (12:00 - 17:30)"
-    )
-    
-    # Evening: 6:00 PM - 11:30 PM
-    evening_slots = forms.MultipleChoiceField(
-        choices=[(f"{hour:02d}:{minute:02d}", f"{hour:02d}:{minute:02d}") 
-                for hour in range(18, 24) 
-                for minute in (0, 30)],
-        widget=forms.CheckboxSelectMultiple,
-        required=False,
-        label="Evening (18:00 - 23:30)"
-    )
-    
-    # Night: 12:00 AM - 5:30 AM
-    night_slots = forms.MultipleChoiceField(
-        choices=[(f"{hour:02d}:{minute:02d}", f"{hour:02d}:{minute:02d}") 
-                for hour in range(0, 6) 
-                for minute in (0, 30)],
-        widget=forms.CheckboxSelectMultiple,
-        required=False,
-        label="Night (00:00 - 05:30)"
-    )
-    
-    def get_all_selected_slots(self):
-        """Combine all selected time slots from different time periods"""
-        all_slots = []
-        if hasattr(self, 'cleaned_data'):
-            all_slots.extend(self.cleaned_data.get('morning_slots', []))
-            all_slots.extend(self.cleaned_data.get('afternoon_slots', []))
-            all_slots.extend(self.cleaned_data.get('evening_slots', []))
-            all_slots.extend(self.cleaned_data.get('night_slots', []))
-        return all_slots
+# Delivery times are picked via add-able dropdowns on the dashboard (see
+# news_app.views.TIME_CHOICES and update_time_slots), so there is no Django
+# form for them anymore.

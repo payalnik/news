@@ -9,8 +9,8 @@
 </div>
 
 <div class="card mb-4">
-    <div class="card-header" style="padding: 0 1.25rem;">
-        <ul class="nav nav-tabs card-header-tabs" style="border-bottom: none;">
+    <div class="card-header history-tabs-header">
+        <ul class="nav nav-tabs card-header-tabs">
             <li class="nav-item">
                 <a class="nav-link {% if not current_section %}active{% endif %}" href="{% url 'news_history' %}">All Sections</a>
             </li>
@@ -29,12 +29,12 @@
             </div>
 
             {% for item in page_obj %}
-                <div class="news-card {% if item.confidence == 'high' %}confidence-high{% elif item.confidence == 'medium' %}confidence-medium{% elif item.confidence == 'low' %}confidence-low{% endif %}">
+                <div class="news-card">
                     <div class="d-flex w-100 justify-content-between align-items-start">
-                        <h5 class="mb-1" style="font-size:1rem;">{{ item.headline }}</h5>
+                        <h3 class="news-headline mb-1">{{ item.headline }}</h3>
                         <small class="text-muted text-nowrap ms-2">{{ item.created_at|date:"M d, Y" }}</small>
                     </div>
-                    <p class="mb-2" style="font-size:0.9rem; color: var(--gray-600);">{{ item.details }}</p>
+                    <p class="news-details mb-2">{{ item.details }}</p>
 
                     <div class="d-flex flex-wrap align-items-center gap-2">
                         {% if item.sources_list %}
@@ -42,15 +42,10 @@
                                 <a href="{{ source.url }}" target="_blank" class="source-pill">{{ source.title }}</a>
                             {% endfor %}
                         {% endif %}
-                        <a href="https://www.google.com/search?q={{ item.headline|urlencode }}&tbm=nws&tbs=qdr:d" target="_blank" class="source-pill text-decoration-none"><i class="bi bi-search"></i> Google News</a>
+                        <a href="https://www.google.com/search?q={{ item.headline|urlencode }}&tbm=nws&tbs=qdr:d" target="_blank" class="source-pill"><i class="bi bi-search me-1"></i>Google News</a>
                     </div>
 
-                    <div class="mt-2 d-flex align-items-center gap-2">
-                        <span class="badge {% if item.confidence == 'high' %}bg-success{% elif item.confidence == 'medium' %}bg-warning{% elif item.confidence == 'low' %}bg-danger{% else %}bg-secondary{% endif %}">
-                            Confidence: {{ item.confidence }}
-                        </span>
-                        <small class="text-muted">Section: {{ item.news_section.name }}</small>
-                    </div>
+                    <p class="news-section-tag mb-0">{{ item.news_section.name }}</p>
                 </div>
             {% endfor %}
 

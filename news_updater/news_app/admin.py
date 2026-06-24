@@ -26,8 +26,8 @@ class VerificationCodeAdmin(admin.ModelAdmin):
 
 @admin.register(NewsItem)
 class NewsItemAdmin(admin.ModelAdmin):
-    list_display = ('headline', 'news_section', 'user_profile', 'confidence', 'created_at')
-    list_filter = ('confidence', 'created_at', 'news_section')
+    list_display = ('headline', 'news_section', 'user_profile', 'created_at')
+    list_filter = ('created_at', 'news_section')
     search_fields = ('headline', 'details', 'user_profile__user__username')
     date_hierarchy = 'created_at'
 

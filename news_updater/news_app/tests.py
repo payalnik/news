@@ -130,7 +130,6 @@ class SendNewsUpdateTests(TestCase):
             'headline': 'Volcano erupts in Iceland',
             'details': 'A volcano erupted near the capital.',
             'sources': [{'url': 'https://news.example.com/volcano', 'title': 'Example'}],
-            'confidence': 'high',
         }])
         self.assertTrue(result)
         self.assertEqual(len(mail.outbox), 1)
@@ -151,7 +150,6 @@ class SendNewsUpdateTests(TestCase):
             'headline': 'Totally different new headline about the eruption',
             'details': 'Reworded coverage of the same article.',
             'sources': [{'url': 'https://news.example.com/volcano?utm_source=tw', 'title': 'Y'}],
-            'confidence': 'high',
         }])
         self.assertTrue(result)
         # Still only the original item; the reworded duplicate was dropped.
@@ -162,7 +160,6 @@ class SendNewsUpdateTests(TestCase):
             'headline': 'Breaking news that should not persist',
             'details': 'Because the email send fails.',
             'sources': [{'url': 'https://news.example.com/x', 'title': 'X'}],
-            'confidence': 'high',
         }], email_should_fail=True)
         self.assertFalse(result)
         self.assertEqual(len(mail.outbox), 0)

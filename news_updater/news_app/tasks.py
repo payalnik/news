@@ -325,8 +325,7 @@ def send_news_update(user_profile_id):
                           "url": "URL of the source article",
                           "title": "Title of the source article (keep this short and clean, max 50 characters)"
                         }}
-                      ],
-                      "confidence": "high/medium/low" // Add your confidence level that this information is accurate and directly from sources
+                      ]
                     }}
                     
                     For example:
@@ -343,8 +342,7 @@ def send_news_update(user_profile_id):
                             "url": "https://another-site.com/business/tech-announcement",
                             "title": "Business Insider"
                           }}
-                        ],
-                        "confidence": "high"
+                        ]
                       }},
                       {{
                         "headline": "Another Important News Item",
@@ -354,8 +352,7 @@ def send_news_update(user_profile_id):
                             "url": "https://example.com/news/article2",
                             "title": "Article Title"
                           }}
-                        ],
-                        "confidence": "medium"
+                        ]
                       }}
                     ]
                     
@@ -364,15 +361,13 @@ def send_news_update(user_profile_id):
                     2. Provide detailed but concise information in the details field WITH CLEAR ATTRIBUTION
                     3. Link to the original sources for EVERY claim made
                     4. Format the JSON correctly so it can be parsed
-                    5. Include a confidence rating for each news item
-                    6. Keep source titles short and clean (use the publication name like "The New York Times", "Fox News", "CNN", etc.)
-                    7. If you cannot extract enough information from the sources, return a JSON array with a single item explaining the issue
-                    
+                    5. Keep source titles short and clean (use the publication name like "The New York Times", "Fox News", "CNN", etc.)
+                    6. If you cannot extract enough information from the sources, return a JSON array with a single item explaining the issue
+
                     VERIFICATION STEP: Before finalizing your response, review each news item and verify:
                     - Every fact is directly from the sources
                     - No information has been added, assumed, or inferred beyond what's explicitly stated
                     - All claims are properly attributed
-                    - The confidence rating accurately reflects the quality and clarity of the source information
                     - The news item is not a duplicate of previously reported items unless there are significant new developments
                     
                     If you need more information from any specific source, please indicate that outside the JSON structure.
@@ -415,9 +410,8 @@ def send_news_update(user_profile_id):
                                                 required=["url", "title"]
                                             )
                                         ),
-                                        "confidence": types.Schema(type=types.Type.STRING),
                                     },
-                                    required=["headline", "details", "sources", "confidence"]
+                                    required=["headline", "details", "sources"]
                                 )
                             )
                             
@@ -550,8 +544,7 @@ def send_news_update(user_profile_id):
                                 headline = item.get("headline", "")
                                 details = item.get("details", "")
                                 sources = item.get("sources", [])
-                                confidence = item.get("confidence", "medium")
-                                
+
                                 # Create a new NewsItem (content_hash is filled in
                                 # by NewsItem.save(); reuse the embedding computed
                                 # during dedup so we don't pay for it twice).
@@ -560,7 +553,6 @@ def send_news_update(user_profile_id):
                                     news_section=section,
                                     headline=headline,
                                     details=details,
-                                    confidence=confidence
                                 )
                                 news_item.set_sources_list(sources)
                                 news_item.set_embedding_vector(item.get('_embedding'))
@@ -592,7 +584,6 @@ def send_news_update(user_profile_id):
                                     'headline': headline,
                                     'details': details,
                                     'sources': cleaned_sources,
-                                    'confidence': confidence
                                 })
 
                         else:
