@@ -129,6 +129,23 @@ DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', EMAIL_HOST_USER)
 # Google API key for Gemini
 GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
 
+# --- News deduplication settings ---
+# How far back to look when checking whether a story was already reported.
+# This window is used BOTH for the context fed to the LLM and for the
+# post-generation duplicate filter, so they stay aligned.
+DEDUP_LOOKBACK_DAYS = int(os.getenv('DEDUP_LOOKBACK_DAYS', '7'))
+# Hard cap on how many recent items to compare against (newest first).
+DEDUP_MAX_RECENT_ITEMS = int(os.getenv('DEDUP_MAX_RECENT_ITEMS', '150'))
+# Cosine-similarity threshold for the semantic (embedding) duplicate check.
+DEDUP_SEMANTIC_THRESHOLD = float(os.getenv('DEDUP_SEMANTIC_THRESHOLD', '0.86'))
+# Jaccard threshold for the lexical headline fallback (lower = stricter dedup).
+DEDUP_HEADLINE_THRESHOLD = float(os.getenv('DEDUP_HEADLINE_THRESHOLD', '0.5'))
+# Embedding model + dimensionality used for semantic dedup.
+DEDUP_EMBEDDING_MODEL = os.getenv('DEDUP_EMBEDDING_MODEL', 'gemini-embedding-001')
+DEDUP_EMBEDDING_DIM = int(os.getenv('DEDUP_EMBEDDING_DIM', '768'))
+# Compute embeddings for older items that predate this feature (one-time backfill).
+DEDUP_BACKFILL_EMBEDDINGS = os.getenv('DEDUP_BACKFILL_EMBEDDINGS', 'True') == 'True'
+
 # Celery settings
 CELERY_BROKER_URL = 'redis://localhost:6379/0'
 CELERY_RESULT_BACKEND = 'redis://localhost:6379/0'

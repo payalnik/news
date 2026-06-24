@@ -14,6 +14,7 @@ import json
 import re
 from urllib.parse import urljoin
 from .browser_fetch import _fetch_with_browser, BrowserSession, process_html_content
+from . import dedup
 
 # Try to import feedparser for RSS support
 try:
@@ -98,11 +99,11 @@ def preprocess_content_with_llm(content, url):
         )
 
         response = client.models.generate_content(
-            model='gemini-3.1-flash-lite-preview',
+            model='gemini-3.1-flash-lite',
             contents=prompt,
             config=generate_content_config,
         )
-        
+
         preprocessed_content = response.text
         
         # Log the results
@@ -246,27 +247,32 @@ def send_news_update(user_profile_id):
                             logger.error(f"Error fetching content from {url}: {str(e)}")
                             sources_content.append(f"Error fetching content from {url}")
                     
-                    # Get the last 100 news items for this user and section to avoid repetition
-                    recent_news_items = NewsItem.objects.filter(
-                        user_profile=user_profile,
-                        news_section=section
-                    ).order_by('-created_at')[:100]
-                    
-                    # Format previous news items to include in the prompt
-                    # Only include headlines from the last 7 days to save tokens;
-                    # the full 100-item list is still used for post-generation is_similar_to() filtering.
+                    # Get recently reported items for this user+section to avoid
+                    # repetition. The same lookback window is used for both the
+                    # LLM context below and the post-generation duplicate filter,
+                    # so what the model is told matches what the code enforces.
+                    from datetime import timedelta
+                    lookback_start = timezone.now() - timedelta(days=settings.DEDUP_LOOKBACK_DAYS)
+                    recent_news_items = list(
+                        NewsItem.objects.filter(
+                            user_profile=user_profile,
+                            news_section=section,
+                            created_at__gte=lookback_start,
+                        ).order_by('-created_at')[:settings.DEDUP_MAX_RECENT_ITEMS]
+                    )
+
+                    # Format previous items for the prompt. Include the source
+                    # domains alongside each headline so the model has a stronger,
+                    # less ambiguous signal for "I've already covered this".
                     previous_news_items_text = ""
-                    if recent_news_items.exists():
-                        from datetime import timedelta
-                        seven_days_ago = timezone.now() - timedelta(days=7)
-                        recent_headlines = [
-                            item.headline for item in recent_news_items
-                            if item.created_at >= seven_days_ago
-                        ]
-                        if recent_headlines:
-                            previous_news_items_text = "PREVIOUSLY REPORTED NEWS ITEMS (DO NOT REPEAT UNLESS SIGNIFICANT NEW DEVELOPMENTS):\n\n"
-                            for headline in recent_headlines:
-                                previous_news_items_text += f"- {headline}\n"
+                    if recent_news_items:
+                        previous_news_items_text = "PREVIOUSLY REPORTED NEWS ITEMS (DO NOT REPEAT UNLESS THERE ARE SIGNIFICANT NEW DEVELOPMENTS):\n\n"
+                        for item in recent_news_items:
+                            domains = sorted({
+                                u.split('/')[0] for u in item.get_normalized_source_urls() if u
+                            })
+                            suffix = f"  [sources: {', '.join(domains)}]" if domains else ""
+                            previous_news_items_text += f"- {item.headline}{suffix}\n"
                     
                     # Generate summary using Gemini
                     joined_sources = "\n\n".join(sources_content)
@@ -410,7 +416,7 @@ def send_news_update(user_profile_id):
                             )
 
                             response = client.models.generate_content(
-                                model='gemini-3.1-flash-lite-preview',
+                                model='gemini-3.1-flash-lite',
                                 contents=prompt,
                                 config=generate_content_config,
                             )
@@ -454,31 +460,63 @@ def send_news_update(user_profile_id):
                                 logger.error(error_msg)
                                 gemini_logger.error(f"{error_msg} for section '{section.name}'")
                         
-                        # Filter out duplicate news items
+                        # Filter out duplicate news items using several signals:
+                        # exact hash, shared source URL, semantic similarity
+                        # (embeddings) and a lexical fallback. See news_app.dedup.
                         if valid_json:
-                            # Filter out duplicates or items without significant changes
+                            # Build the comparison set from previously reported
+                            # items, reusing cached embeddings where available and
+                            # backfilling missing ones once (best-effort).
+                            previous = []
+                            for recent_item in recent_news_items:
+                                emb = recent_item.get_embedding_vector()
+                                if emb is None and settings.DEDUP_BACKFILL_EMBEDDINGS and client is not None:
+                                    emb = dedup.embed_text(
+                                        client, f"{recent_item.headline}\n{recent_item.details}")
+                                    if emb is not None:
+                                        recent_item.set_embedding_vector(emb)
+                                        recent_item.save(update_fields=['embedding'])
+                                previous.append({
+                                    'headline': recent_item.headline,
+                                    'details': recent_item.details,
+                                    'urls': recent_item.get_normalized_source_urls(),
+                                    'hash': recent_item.content_hash,
+                                    'embedding': emb,
+                                })
+
                             filtered_news_items = []
+                            batch_prev = []  # de-dupe within this run too
+                            dup_count = 0
                             for item in news_items:
                                 headline = item.get("headline", "")
                                 details = item.get("details", "")
-                                
-                                # Check if this is a duplicate of a recent news item
-                                is_duplicate = False
-                                for recent_item in recent_news_items:
-                                    if recent_item.is_similar_to(headline, details):
-                                        logger.info(f"Filtered out duplicate news item: {headline}")
-                                        is_duplicate = True
-                                        break
-                                
-                                if not is_duplicate:
-                                    filtered_news_items.append(item)
-                            
-                            # Log how many items were filtered out
-                            filtered_count = len(news_items) - len(filtered_news_items)
-                            if filtered_count > 0:
-                                logger.info(f"Filtered out {filtered_count} duplicate news items for section {section.name}")
+                                candidate = {
+                                    'headline': headline,
+                                    'details': details,
+                                    'urls': dedup.normalized_source_urls(item.get("sources", [])),
+                                    'hash': dedup.content_hash_for(headline, details),
+                                    'embedding': dedup.embed_text(client, f"{headline}\n{details}"),
+                                }
+                                match, reason = dedup.find_duplicate(
+                                    candidate, previous + batch_prev,
+                                    semantic_threshold=settings.DEDUP_SEMANTIC_THRESHOLD,
+                                    headline_threshold=settings.DEDUP_HEADLINE_THRESHOLD,
+                                )
+                                if match is not None:
+                                    dup_count += 1
+                                    logger.info(
+                                        f"Filtered duplicate [{reason}] for section "
+                                        f"'{section.name}': {headline!r}")
+                                    continue
+                                # Stash the embedding so we don't re-compute on save.
+                                item['_embedding'] = candidate['embedding']
+                                filtered_news_items.append(item)
+                                batch_prev.append(candidate)
 
-                            # Replace the original news_items with the filtered list
+                            logger.info(
+                                f"Dedup for section '{section.name}': "
+                                f"{len(news_items)} generated, {dup_count} duplicates "
+                                f"filtered, {len(filtered_news_items)} kept")
                             news_items = filtered_news_items
                         
                         if valid_json:
@@ -490,7 +528,9 @@ def send_news_update(user_profile_id):
                                 sources = item.get("sources", [])
                                 confidence = item.get("confidence", "medium")
                                 
-                                # Create a new NewsItem
+                                # Create a new NewsItem (content_hash is filled in
+                                # by NewsItem.save(); reuse the embedding computed
+                                # during dedup so we don't pay for it twice).
                                 news_item = NewsItem(
                                     user_profile=user_profile,
                                     news_section=section,
@@ -499,6 +539,7 @@ def send_news_update(user_profile_id):
                                     confidence=confidence
                                 )
                                 news_item.set_sources_list(sources)
+                                news_item.set_embedding_vector(item.get('_embedding'))
                                 news_item.save()
                                 
                                 # Clean up source titles for display

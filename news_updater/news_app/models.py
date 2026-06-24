@@ -65,71 +65,58 @@ class NewsItem(models.Model):
     details = models.TextField()
     sources = models.TextField()  # Stored as JSON
     confidence = models.CharField(max_length=10, default='medium')
+    # Dedup support: exact-match hash of headline+details and a cached
+    # embedding vector (JSON list of floats) for semantic similarity.
+    content_hash = models.CharField(max_length=64, blank=True, default='', db_index=True)
+    embedding = models.TextField(blank=True, null=True)  # JSON-encoded list[float]
     created_at = models.DateTimeField(auto_now_add=True)
-    
+
     def __str__(self):
         return f"{self.headline} - {self.created_at.strftime('%Y-%m-%d')}"
-    
+
     def get_sources_list(self):
         try:
             return json.loads(self.sources)
         except:
             return []
-    
+
     def set_sources_list(self, sources_list):
         self.sources = json.dumps(sources_list)
+
+    def get_normalized_source_urls(self):
+        from .dedup import normalized_source_urls
+        return normalized_source_urls(self.get_sources_list())
+
+    def get_embedding_vector(self):
+        if not self.embedding:
+            return None
+        try:
+            return json.loads(self.embedding)
+        except (ValueError, TypeError):
+            return None
+
+    def set_embedding_vector(self, vector):
+        self.embedding = json.dumps(vector) if vector else None
+
+    def save(self, *args, **kwargs):
+        if not self.content_hash:
+            from .dedup import content_hash_for
+            self.content_hash = content_hash_for(self.headline, self.details)
+        super().save(*args, **kwargs)
     
-    def is_similar_to(self, headline, details, threshold=0.7):
+    def is_similar_to(self, headline, details, threshold=None):
         """
-        Check if this news item is similar to the provided headline and details.
-        Returns True if they are similar, False otherwise.
+        Check whether this item is lexically similar to the given headline/details.
 
-        The threshold parameter controls how similar the items need to be (0.0 to 1.0).
-        Uses headline similarity as the primary signal, with a secondary details
-        check to catch stories with different headlines about the same event.
+        Thin wrapper over ``dedup.lexical_similar`` (the shared implementation,
+        which also handles the not-yet-saved items in the current batch). The
+        threshold defaults to ``settings.DEDUP_HEADLINE_THRESHOLD``.
         """
-        # Exact headline match
-        if self.headline.lower() == headline.lower():
-            return True
-
-        # Word overlap approach for headlines
-        headline_words = set(self.headline.lower().split())
-        new_headline_words = set(headline.lower().split())
-
-        # Calculate Jaccard similarity (intersection over union)
-        if not headline_words or not new_headline_words:
-            return False
-
-        h_intersection = len(headline_words.intersection(new_headline_words))
-        h_union = len(headline_words.union(new_headline_words))
-        headline_similarity = h_intersection / h_union
-
-        if headline_similarity >= threshold:
-            return True
-
-        # Secondary check: if headlines are moderately similar, also compare details
-        # to catch stories with different headlines covering the same event
-        if headline_similarity >= 0.4 and details and self.details:
-            # Filter out very short common words for a more meaningful comparison
-            stop_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to',
-                         'of', 'for', 'with', 'by', 'is', 'are', 'was', 'were', 'that',
-                         'this', 'it', 'has', 'have', 'had', 'be', 'been', 'from', 'as'}
-            detail_words = set(self.details.lower().split()) - stop_words
-            new_detail_words = set(details.lower().split()) - stop_words
-
-            if detail_words and new_detail_words:
-                d_intersection = len(detail_words.intersection(new_detail_words))
-                d_union = len(detail_words.union(new_detail_words))
-                detail_similarity = d_intersection / d_union
-
-                # Combined score: weight headline more heavily.
-                # Use a lower threshold (0.5) than pure headline matching since
-                # this path is already gated on headline_similarity >= 0.4
-                combined = 0.6 * headline_similarity + 0.4 * detail_similarity
-                if combined >= 0.5:
-                    return True
-
-        return False
+        from django.conf import settings
+        from .dedup import lexical_similar
+        if threshold is None:
+            threshold = getattr(settings, 'DEDUP_HEADLINE_THRESHOLD', 0.5)
+        return lexical_similar(self.headline, self.details, headline, details, threshold)
 
 class FetchLog(models.Model):
     STATUS_CHOICES = [

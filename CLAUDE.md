@@ -17,6 +17,19 @@
 - RSS discovery order: `<link rel="alternate">` tags first (authoritative), then common paths as fallback with early exit after 3 misses
 - Skip `/comments/` feed URLs — they contain user comments, not articles (e.g. mercurynews.com)
 
+## Deduplication (avoiding repeated news)
+- Logic lives in `news_app/dedup.py` (ORM-free; operates on plain dicts so the same code dedupes both stored items and not-yet-saved items in the current batch)
+- Signals applied cheapest/strongest first: (1) exact `content_hash`, (2) shared normalized source URL, (3) semantic similarity via Gemini embeddings, (4) lexical headline/detail Jaccard fallback
+- `NewsItem` has `content_hash` (auto-filled in `save()`) and `embedding` (JSON list of floats) — see migration `0006`
+- `normalize_url()` strips scheme/`www.`/tracking params/trailing slash so http/https + utm variants collapse — URL match is the most reliable repeat signal
+- Embeddings: `client.models.embed_content(model=settings.DEDUP_EMBEDDING_MODEL, contents=..., config=EmbedContentConfig(task_type='SEMANTIC_SIMILARITY', output_dimensionality=settings.DEDUP_EMBEDDING_DIM))`; `embed_text()` returns `None` on any failure and the pipeline degrades to lexical dedup
+- All thresholds/windows are settings: `DEDUP_LOOKBACK_DAYS`, `DEDUP_MAX_RECENT_ITEMS`, `DEDUP_SEMANTIC_THRESHOLD`, `DEDUP_HEADLINE_THRESHOLD`, `DEDUP_EMBEDDING_MODEL`, `DEDUP_EMBEDDING_DIM`, `DEDUP_BACKFILL_EMBEDDINGS`
+- The LLM-context window (previously-reported items in the prompt) and the post-generation filter window are now BOTH `DEDUP_LOOKBACK_DAYS` — keep them aligned
+- Prompt now lists prior items as `headline [sources: domain1, domain2]` for a stronger "already covered" signal
+- Dedup also runs WITHIN a single batch (`batch_prev`) so two generated items in one run can't duplicate each other
+- Per-section dedup metrics are logged: `Dedup for section '...': N generated, M duplicates filtered, K kept`
+- `is_similar_to()` on `NewsItem` is now a thin wrapper over `dedup.lexical_similar()` (stop words stripped from headlines too; threshold defaults to `DEDUP_HEADLINE_THRESHOLD`)
+
 ## Frontend / Templates
 - **Base template**: `templates/base.html` — loads Bootstrap 5, Bootstrap Icons, Google Fonts (Inter), custom `static/css/style.css`
 - **Custom CSS**: `static/css/style.css` — design system with CSS custom properties, indigo primary (`#4f46e5`)
@@ -45,6 +58,7 @@
 - Use `python3` not `python` (python not on PATH)
 - **Venv at `/var/www/news/venv/`** — always use `/var/www/news/venv/bin/pip` to install packages, NOT bare `pip`/`pip3` (which installs to system Python at `/usr`)
 - Requirements in `/var/www/news/requirements.txt`
+- `/var/www/news/.env` is owned by `www-data` and not readable by the `payalnik` user, so `manage.py` fails at `load_dotenv()` with `PermissionError`. To run management commands locally, stub it: `python3 -c "import dotenv; dotenv.load_dotenv=lambda *a,**k:False; import django; django.setup(); ..."` with `SECRET_KEY`/`GOOGLE_API_KEY` set inline (DB is sqlite, `payalnik` is in the `www-data` group so has rw on `db.sqlite3` + its dir)
 
 ## Workflow Rules
 - **Always update CLAUDE.md with what you learned** after completing a task — document new patterns, gotchas, or conventions discovered
