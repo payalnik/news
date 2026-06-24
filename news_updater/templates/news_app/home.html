@@ -1,67 +1,90 @@
 {% extends 'base.html' %}
 
-{% block title %}News Updater - Personal AI News Briefing{% endblock %}
+{% block title %}News Updater - One news email that's actually yours{% endblock %}
 
 {% block content %}
 <div class="hero-section text-center">
-    <h1 class="fw-bold mb-3">Your Personal AI News Briefing</h1>
+    <h1 class="fw-bold mb-3">Stop checking five sites.<br>Get one briefing that's actually yours.</h1>
     <p class="lead mb-4">
-        Stop doomscrolling. Start knowing. Get a curated, AI-summarized digest of the news that matters to you, delivered straight to your inbox on your schedule. Powered by Gemini.
+        Tell it what you care about in plain English. It reads your sources every morning,
+        summarizes only what matters, and never repeats a story you've already seen.
     </p>
     <div class="d-grid gap-2 d-sm-flex justify-content-sm-center">
-        <a href="{% url 'signup' %}" class="btn btn-primary btn-lg px-4 me-sm-3">Get Started for Free</a>
-        <a href="{% url 'login' %}" class="btn btn-outline-secondary btn-lg px-4">Log In</a>
+        <a href="{% url 'signup' %}" class="btn btn-primary btn-lg px-4">Get started — it's free</a>
     </div>
+    <p class="hero-reassure mt-3 mb-0">No credit card · one email a day · unsubscribe anytime</p>
 </div>
 
-<div class="container px-4 py-5" id="features">
-    <h2 class="pb-2 text-center mb-4" style="font-size:1.5rem;">How It Works</h2>
+<!-- The point: YOUR rules in, YOUR briefing out -->
+<div class="container showcase">
+    <div class="briefing-demo">
+        <div class="demo-card demo-setup">
+            <span class="demo-label">Your setup</span>
+
+            <div class="demo-field">
+                <span class="demo-field-label">Sources you picked</span>
+                <div class="source-chips">
+                    <span class="source-chip">your local paper</span>
+                    <span class="source-chip">BBC News</span>
+                    <span class="source-chip">ESPN</span>
+                </div>
+            </div>
+
+            <div class="demo-field">
+                <span class="demo-field-label">What to do — in your words</span>
+                <p class="demo-rule">“Just the day's big stories, plus my city and my team.
+                    One line each. Skip celebrity gossip and opinion columns.”</p>
+            </div>
+        </div>
+
+        <div class="demo-arrow" aria-hidden="true">
+            <i class="bi bi-arrow-right"></i>
+        </div>
+
+        <div class="demo-card demo-briefing">
+            <span class="demo-label">Today · 7:00 AM, in your inbox</span>
+
+            <div class="brief-item"><span>City council approves downtown bike-lane plan</span><span class="source-pill">Local paper</span></div>
+            <div class="brief-item"><span>Crews clear roads; commute back to normal by Friday</span><span class="source-pill">Local paper</span></div>
+            <div class="brief-item"><span>World leaders sign new trade agreement</span><span class="source-pill">BBC</span></div>
+            <div class="brief-item"><span>Late goal sends your team to the playoffs</span><span class="source-pill">ESPN</span></div>
+
+            <div class="brief-proof"><i class="bi bi-check2"></i> skipped 6 opinion columns &amp; gossip items</div>
+            <div class="brief-proof"><i class="bi bi-check2"></i> nothing you already read yesterday</div>
+        </div>
+    </div>
+    <p class="showcase-caption">You write the rules once. It does this every day.</p>
+</div>
+
+<div class="container px-4 py-5">
     <div class="row g-4 row-cols-1 row-cols-lg-3">
         <div class="col">
             <div class="feature-card">
-                <div class="feature-icon">
-                    <i class="bi bi-person-plus"></i>
-                </div>
-                <h3>1. Sign Up</h3>
-                <p>Create your account in seconds. Verify your email to ensure secure delivery of your personalized briefings.</p>
+                <div class="feature-icon"><i class="bi bi-link-45deg"></i></div>
+                <h3>Your sources</h3>
+                <p>Add the sites you actually trust — your local paper, a niche blog, the outlets you already read.</p>
             </div>
         </div>
         <div class="col">
             <div class="feature-card">
-                <div class="feature-icon">
-                    <i class="bi bi-sliders"></i>
-                </div>
-                <h3>2. Customize</h3>
-                <p>Define your news sections. Tell us what topics, sources, or specific websites you want to track. The AI does the rest.</p>
+                <div class="feature-icon"><i class="bi bi-chat-square-text"></i></div>
+                <h3>Your rules</h3>
+                <p>Say what matters and what to ignore, in plain English. No filters to configure, no keywords to wrangle.</p>
             </div>
         </div>
         <div class="col">
             <div class="feature-card">
-                <div class="feature-icon">
-                    <i class="bi bi-clock"></i>
-                </div>
-                <h3>3. Schedule</h3>
-                <p>Set your delivery times. Morning coffee? Evening commute? Receive your concise summary exactly when you want it.</p>
+                <div class="feature-icon"><i class="bi bi-envelope-paper"></i></div>
+                <h3>One calm email</h3>
+                <p>A short briefing at the time you choose. No app to open, no feed to scroll, no repeats.</p>
             </div>
         </div>
     </div>
 </div>
 
-<div class="container">
-    <div class="row align-items-center g-5 py-5">
-        <div class="col-lg-6">
-            <h2 class="display-6 fw-bold lh-1 mb-3">Stay informed, not overwhelmed.</h2>
-            <p class="lead" style="color: var(--gray-500);">News Updater filters out the noise. Instead of visiting 10 different sites, get one clean email with the key takeaways from your favorite sources.</p>
-            <div class="d-grid gap-2 d-md-flex justify-content-md-start">
-                <a href="{% url 'signup' %}" class="btn btn-primary btn-lg px-4 me-md-2">Create Account</a>
-            </div>
-        </div>
-        <div class="col-lg-6">
-             <div class="preview-placeholder">
-                <p class="mb-2">Your Daily Briefing Preview</p>
-                <i class="bi bi-newspaper display-1"></i>
-             </div>
-        </div>
-    </div>
+<div class="container text-center pb-5">
+    <h2 class="fw-bold mb-3">Make the news fit your life — not the other way around.</h2>
+    <a href="{% url 'signup' %}" class="btn btn-primary btn-lg px-4">Create your first briefing</a>
+    <p class="hero-reassure-dark mt-3 mb-0">Free · set it up in under a minute</p>
 </div>
 {% endblock %}
