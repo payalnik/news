@@ -30,6 +30,17 @@
 - Per-section dedup metrics are logged: `Dedup for section '...': N generated, M duplicates filtered, K kept`
 - `is_similar_to()` on `NewsItem` is now a thin wrapper over `dedup.lexical_similar()` (stop words stripped from headlines too; threshold defaults to `DEDUP_HEADLINE_THRESHOLD`)
 
+## Task reliability & performance (send_news_update)
+- **Persist-after-send**: `NewsItem`s are accumulated in `pending_news_items` and only `.save()`d AFTER `email.send()` succeeds (wrapped in `transaction.atomic()`). Never save items before the email goes out — otherwise a send failure makes the news vanish forever via the dedup filter on the next run
+- **Parallel source fetches**: a section's sources are fetched concurrently via `ThreadPoolExecutor` (`settings.NEWS_FETCH_CONCURRENCY`, default 4). Playwright's sync API is NOT thread-safe across a shared session, so each parallel fetch passes `browser_session=None` and spins up its own short-lived session (`fetch_with_playwright` creates its own `BrowserSession`). Do NOT share one `BrowserSession` across threads
+- Source cap is `settings.NEWS_MAX_SOURCES_PER_SECTION` (default 7), not a hardcoded 7
+- **Batched embeddings**: use `dedup.embed_texts(client, [...])` (one API call for many texts) for both candidate items and the recent-item backfill — not per-item `embed_text` in a loop
+- SQLite is in WAL mode for concurrent worker/gunicorn access: `OPTIONS={'timeout': 20}` in settings + PRAGMAs (`journal_mode=WAL`, `synchronous=NORMAL`, `busy_timeout`) applied via the `connection_created` signal in `news_app/apps.py` (the sqlite3 backend ignores `init_command`)
+
+## Tests
+- Test suite in `news_app/tests.py`: dedup unit tests (pure functions) + `send_news_update` integration tests (mocked Gemini client + fetch + locmem email)
+- Run them via the `.env`/PYTHONPATH workaround documented in project memory — **`PYTHONPATH=/var/www/news`** (NOT `.../news_updater`, which breaks discovery because the repo root is itself a package named `news_updater`) and label `news_app.tests`
+
 ## Frontend / Templates
 - **Base template**: `templates/base.html` — loads Bootstrap 5, Bootstrap Icons, Google Fonts (Inter), custom `static/css/style.css`
 - **Custom CSS**: `static/css/style.css` — design system with CSS custom properties, indigo primary (`#4f46e5`)

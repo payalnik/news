@@ -69,6 +69,14 @@ DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': BASE_DIR / 'db.sqlite3',
+        # Multiple Celery workers + gunicorn all write to this one SQLite file.
+        # `timeout` makes a writer wait for a lock instead of failing immediately
+        # with "database is locked". WAL mode (which lets readers and a writer
+        # coexist) is enabled per-connection via the connection_created signal in
+        # news_app/apps.py, since the sqlite3 backend ignores init_command.
+        'OPTIONS': {
+            'timeout': int(os.getenv('SQLITE_TIMEOUT', '20')),
+        },
     }
 }
 
@@ -145,6 +153,12 @@ DEDUP_EMBEDDING_MODEL = os.getenv('DEDUP_EMBEDDING_MODEL', 'gemini-embedding-001
 DEDUP_EMBEDDING_DIM = int(os.getenv('DEDUP_EMBEDDING_DIM', '768'))
 # Compute embeddings for older items that predate this feature (one-time backfill).
 DEDUP_BACKFILL_EMBEDDINGS = os.getenv('DEDUP_BACKFILL_EMBEDDINGS', 'True') == 'True'
+
+# --- News fetching settings ---
+# Max source URLs fetched per section (extras are dropped with a warning).
+NEWS_MAX_SOURCES_PER_SECTION = int(os.getenv('NEWS_MAX_SOURCES_PER_SECTION', '7'))
+# How many of a section's sources to fetch concurrently.
+NEWS_FETCH_CONCURRENCY = int(os.getenv('NEWS_FETCH_CONCURRENCY', '4'))
 
 # Celery settings
 CELERY_BROKER_URL = 'redis://localhost:6379/0'

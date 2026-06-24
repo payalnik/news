@@ -12,6 +12,8 @@ import random
 import time
 import json
 import re
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import nullcontext
 from urllib.parse import urljoin
 from .browser_fetch import _fetch_with_browser, BrowserSession, process_html_content
 from . import dedup
@@ -222,30 +224,42 @@ def send_news_update(user_profile_id):
             
             # Prepare data collection
             sections_data = []
-            
-            # Use a persistent browser session for all fetches in this task
-            with BrowserSession() as browser_session:
+            # NewsItems are only persisted AFTER the email is sent successfully
+            # (see the save loop below), so a send failure doesn't make the news
+            # disappear forever via the dedup filter on the next run.
+            pending_news_items = []
+
+            # nullcontext keeps the block structure without eagerly launching a
+            # browser: fetches now run in parallel threads, and Playwright's sync
+            # API isn't thread-safe across a shared session, so each fetch that
+            # needs the browser spins up its own short-lived session instead.
+            with nullcontext():
                 for section in news_sections:
                     # Fetch content from sources
-                    sources_content = []
                     source_urls = section.get_sources_list()
-                    
-                    # Limit to 7 sources and set warning flag if limit exceeded
+
+                    # Cap sources per section (extras dropped, with a warning).
                     sources_limit_warning = False
-                    if len(source_urls) > 7:
-                        source_urls = source_urls[:7]
+                    max_sources = settings.NEWS_MAX_SOURCES_PER_SECTION
+                    if len(source_urls) > max_sources:
+                        source_urls = source_urls[:max_sources]
                         sources_limit_warning = True
-                    
-                    for url in source_urls:
+
+                    def _fetch_one(url):
                         try:
-                            # Fetch the raw content, passing the shared browser session
-                            raw_content = fetch_url_content(url, browser_session=browser_session)
-                            
-                            # Add the content to the sources directly (skipping redundant LLM preprocessing)
-                            sources_content.append(f"Content from {url}:\n{raw_content}")
+                            raw_content = fetch_url_content(url, browser_session=None)
+                            return f"Content from {url}:\n{raw_content}"
                         except Exception as e:
                             logger.error(f"Error fetching content from {url}: {str(e)}")
-                            sources_content.append(f"Error fetching content from {url}")
+                            return f"Error fetching content from {url}"
+
+                    # Fetch this section's sources concurrently, preserving order.
+                    if source_urls:
+                        workers = min(len(source_urls), settings.NEWS_FETCH_CONCURRENCY)
+                        with ThreadPoolExecutor(max_workers=workers) as pool:
+                            sources_content = list(pool.map(_fetch_one, source_urls))
+                    else:
+                        sources_content = []
                     
                     # Get recently reported items for this user+section to avoid
                     # repetition. The same lookback window is used for both the
@@ -467,27 +481,37 @@ def send_news_update(user_profile_id):
                             # Build the comparison set from previously reported
                             # items, reusing cached embeddings where available and
                             # backfilling missing ones once (best-effort).
-                            previous = []
-                            for recent_item in recent_news_items:
-                                emb = recent_item.get_embedding_vector()
-                                if emb is None and settings.DEDUP_BACKFILL_EMBEDDINGS and client is not None:
-                                    emb = dedup.embed_text(
-                                        client, f"{recent_item.headline}\n{recent_item.details}")
-                                    if emb is not None:
-                                        recent_item.set_embedding_vector(emb)
-                                        recent_item.save(update_fields=['embedding'])
-                                previous.append({
-                                    'headline': recent_item.headline,
-                                    'details': recent_item.details,
-                                    'urls': recent_item.get_normalized_source_urls(),
-                                    'hash': recent_item.content_hash,
-                                    'embedding': emb,
-                                })
+                            # Backfill missing embeddings on older items in a
+                            # single batched call instead of one call per item.
+                            missing = [ri for ri in recent_news_items
+                                       if ri.get_embedding_vector() is None]
+                            if missing and settings.DEDUP_BACKFILL_EMBEDDINGS and client is not None:
+                                vecs = dedup.embed_texts(
+                                    client,
+                                    [f"{ri.headline}\n{ri.details}" for ri in missing])
+                                for ri, vec in zip(missing, vecs):
+                                    if vec is not None:
+                                        ri.set_embedding_vector(vec)
+                                        ri.save(update_fields=['embedding'])
+
+                            previous = [{
+                                'headline': ri.headline,
+                                'details': ri.details,
+                                'urls': ri.get_normalized_source_urls(),
+                                'hash': ri.content_hash,
+                                'embedding': ri.get_embedding_vector(),
+                            } for ri in recent_news_items]
+
+                            # Embed all freshly generated items in one batched call.
+                            cand_embeddings = dedup.embed_texts(
+                                client,
+                                [f"{it.get('headline', '')}\n{it.get('details', '')}"
+                                 for it in news_items])
 
                             filtered_news_items = []
                             batch_prev = []  # de-dupe within this run too
                             dup_count = 0
-                            for item in news_items:
+                            for idx, item in enumerate(news_items):
                                 headline = item.get("headline", "")
                                 details = item.get("details", "")
                                 candidate = {
@@ -495,7 +519,7 @@ def send_news_update(user_profile_id):
                                     'details': details,
                                     'urls': dedup.normalized_source_urls(item.get("sources", [])),
                                     'hash': dedup.content_hash_for(headline, details),
-                                    'embedding': dedup.embed_text(client, f"{headline}\n{details}"),
+                                    'embedding': cand_embeddings[idx],
                                 }
                                 match, reason = dedup.find_duplicate(
                                     candidate, previous + batch_prev,
@@ -540,8 +564,9 @@ def send_news_update(user_profile_id):
                                 )
                                 news_item.set_sources_list(sources)
                                 news_item.set_embedding_vector(item.get('_embedding'))
-                                news_item.save()
-                                
+                                # Defer save until the email is sent (see below).
+                                pending_news_items.append(news_item)
+
                                 # Clean up source titles for display
                                 cleaned_sources = []
                                 for source in sources:
@@ -620,9 +645,21 @@ def send_news_update(user_profile_id):
             )
             email.attach_alternative(html_content, "text/html")
             email.send()
-            
+
             logger.info(f"News update sent to {user.email}")
-            
+
+            # Only now that the email is out do we record these items as
+            # "reported". If email.send() raised above, we never get here, so the
+            # items aren't persisted and will be regenerated next run instead of
+            # being silently suppressed as duplicates.
+            from django.db import transaction
+            with transaction.atomic():
+                for news_item in pending_news_items:
+                    news_item.save()
+            logger.info(
+                f"Persisted {len(pending_news_items)} news items for {user.email} "
+                f"after successful send")
+
             return True
             
         except Exception as e:

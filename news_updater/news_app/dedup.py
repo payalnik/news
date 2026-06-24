@@ -145,6 +145,36 @@ def embed_text(client, text):
     return None
 
 
+def embed_texts(client, texts):
+    """Embed several texts in a single API call.
+
+    Returns a list aligned with ``texts`` where each entry is a vector or
+    ``None``. On any failure the whole list is ``None`` entries (callers then
+    degrade to lexical dedup). Empty strings map to ``None`` without a call.
+    """
+    results = [None] * len(texts)
+    idx = [i for i, t in enumerate(texts) if t]
+    if client is None or not idx:
+        return results
+    try:
+        from google.genai import types
+        resp = client.models.embed_content(
+            model=settings.DEDUP_EMBEDDING_MODEL,
+            contents=[texts[i][:8000] for i in idx],
+            config=types.EmbedContentConfig(
+                task_type='SEMANTIC_SIMILARITY',
+                output_dimensionality=settings.DEDUP_EMBEDDING_DIM,
+            ),
+        )
+        embeddings = resp.embeddings or []
+        for slot, emb in zip(idx, embeddings):
+            if emb and emb.values:
+                results[slot] = list(emb.values)
+    except Exception as e:
+        logger.warning(f"Batch embedding failed, falling back to lexical dedup: {e}")
+    return results
+
+
 def match_reason(candidate, prev, *, semantic_threshold, headline_threshold):
     """Return a short reason string if ``candidate`` duplicates ``prev``, else None.
 
