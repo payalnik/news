@@ -128,7 +128,7 @@
 <body>
     <div class="container">
         <div class="content">
-            <h1>News Update<br><span style="font-size: 16px; color: #888; font-weight: normal;">{{ date }}</span></h1>
+            <h1>Your Brew<br><span style="font-size: 16px; color: #888; font-weight: normal;">{{ date }}</span></h1>
             
             {% for section in sections %}
                 <h2>{{ section.name }}</h2>
@@ -165,7 +165,7 @@
             {% endfor %}
 
             <div class="footer">
-                <p>This email was automatically generated and sent by your News Updater service.</p>
+                <p>This email was automatically generated and sent by your Brew service.</p>
                 <p><a href="{{ dashboard_url }}">Edit your news sections</a></p>
             </div>
         </div>

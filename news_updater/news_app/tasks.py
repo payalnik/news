@@ -605,7 +605,7 @@ def send_news_update(user_profile_id):
             html_content = render_to_string('news_app/news_update_email.html', context)
             
             # Generate plain text content from the structured data
-            plain_text_content = f"Here's your news update for {timezone.now().strftime('%Y-%m-%d')}:\n\n"
+            plain_text_content = f"Here's your Brew for {timezone.now().strftime('%Y-%m-%d')}:\n\n"
             
             for section in sections_data:
                 plain_text_content += f"\n\n## {section['name']}\n\n"
@@ -623,7 +623,7 @@ def send_news_update(user_profile_id):
             plain_text_content += "\n\nEdit your news sections: https://news.alexilin.com/dashboard/"
             
             # Send email
-            subject = f"Your News Update - {timezone.now().strftime('%Y-%m-%d')}"
+            subject = f"Your Brew · {timezone.now().strftime('%Y-%m-%d')}"
             from_email = settings.DEFAULT_FROM_EMAIL
             recipient_list = [user.email]
             

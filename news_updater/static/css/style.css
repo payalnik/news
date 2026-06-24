@@ -668,6 +668,19 @@ textarea.form-control {
     border-bottom: 0;
 }
 
+/* --- Hero tagline kicker --- */
+.hero-kicker {
+    display: inline-block;
+    background: rgba(255, 255, 255, 0.15);
+    color: #fff;
+    font-size: 0.8rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    padding: 0.3rem 0.8rem;
+    border-radius: 99px;
+    margin-bottom: 1rem;
+}
+
 /* --- Hero reassurance microcopy --- */
 .hero-reassure {
     color: rgba(255, 255, 255, 0.75);

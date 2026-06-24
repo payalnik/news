@@ -54,7 +54,7 @@ def signup(request):
             VerificationCode.objects.create(user_profile=user_profile, code=code)
             
             # Send verification email
-            subject = 'Verify your email for News Updater'
+            subject = 'Verify your email for Brew'
             message = f'Your verification code is: {code}'
             from_email = settings.DEFAULT_FROM_EMAIL
             recipient_list = [user.email]
@@ -113,7 +113,7 @@ def resend_verification(request):
     VerificationCode.objects.create(user_profile=user_profile, code=code)
     
     # Send verification email
-    subject = 'Verify your email for News Updater'
+    subject = 'Verify your email for Brew'
     message = f'Your verification code is: {code}'
     from_email = settings.DEFAULT_FROM_EMAIL
     recipient_list = [request.user.email]

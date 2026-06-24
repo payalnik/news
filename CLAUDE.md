@@ -1,6 +1,7 @@
 # News Updater Project Memory
 
 ## Project Structure
+- **Product name is "Brew"** (tagline "News, brewed your way"; coffee-cup icon `bi-cup-hot`). The user-facing brand is Brew everywhere (navbar, titles, footer, email subject "Your Brew · {date}", digest h1 "Your Brew"). The Django project/package/dir is still `news_updater` and the app is `news_app` — those are internal, don't rename them.
 - Django app at `/var/www/news/news_updater/`
 - Main logic in `news_app/tasks.py` — fetch cascade: RSS → Jina → Requests → Browser
 - Browser fetch in `news_app/browser_fetch.py`
