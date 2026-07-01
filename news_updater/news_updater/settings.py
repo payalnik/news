@@ -134,8 +134,14 @@ EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD')
 EMAIL_USE_TLS = os.getenv('EMAIL_USE_TLS', 'True') == 'True'
 DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', EMAIL_HOST_USER)
 
-# Google API key for Gemini
-GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
+# OpenRouter (text generation) — replaced Gemini after the GOOGLE_API_KEY leak.
+OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY', '')
+OPENROUTER_MODEL = os.getenv('OPENROUTER_MODEL', 'deepseek/deepseek-v4-flash')
+
+# Google API key — RETIRED (leaked/compromised). Kept only so legacy embedding
+# code reads empty and degrades to lexical dedup until the embeddings decision
+# is made. Do not put a live key here.
+GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY', '')
 
 # --- News deduplication settings ---
 # How far back to look when checking whether a story was already reported.
@@ -170,6 +176,21 @@ CELERY_TIMEZONE = TIME_ZONE
 
 # Use Django DB scheduler for Celery Beat
 CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers:DatabaseScheduler'
+
+# Shared cache (Redis) — needed so rate-limit counters are consistent across
+# gunicorn workers. Uses redis db 1 to stay clear of the Celery broker (db 0).
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+        'LOCATION': os.getenv('CACHE_REDIS_URL', 'redis://localhost:6379/1'),
+    }
+}
+
+# Signup / verification abuse controls (see news_app.ratelimit).
+SIGNUP_IP_HOURLY_LIMIT = int(os.getenv('SIGNUP_IP_HOURLY_LIMIT', '5'))
+SIGNUP_IP_DAILY_LIMIT = int(os.getenv('SIGNUP_IP_DAILY_LIMIT', '20'))
+SIGNUP_EMAIL_DAILY_LIMIT = int(os.getenv('SIGNUP_EMAIL_DAILY_LIMIT', '3'))
+RESEND_HOURLY_LIMIT = int(os.getenv('RESEND_HOURLY_LIMIT', '5'))
 
 # Authentication settings
 LOGIN_REDIRECT_URL = 'dashboard'

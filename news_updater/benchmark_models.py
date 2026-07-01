@@ -30,7 +30,7 @@ from news_app.models import NewsSection  # noqa: E402
 from news_app.tasks import fetch_url_content  # noqa: E402
 
 OLD_MODEL = "gemini-3-flash-preview"
-NEW_MODEL = "gemini-3.1-flash-lite-preview"
+NEW_MODEL = "gemini-3.1-flash-lite"
 
 OUT_DIR = Path("/var/www/news/benchmark_out")
 OUT_DIR.mkdir(parents=True, exist_ok=True)

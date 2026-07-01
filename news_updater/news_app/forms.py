@@ -5,10 +5,27 @@ from .models import NewsSection, TimeSlot, VerificationCode
 
 class SignUpForm(UserCreationForm):
     email = forms.EmailField(max_length=254, required=True, help_text='Required. Enter a valid email address.')
-    
+    # Honeypot: hidden from real users via CSS; naive bots fill every field.
+    # Must stay empty. Not a security boundary, just a cheap first filter.
+    website = forms.CharField(
+        required=False,
+        widget=forms.TextInput(attrs={
+            'autocomplete': 'off',
+            'tabindex': '-1',
+            'style': 'position:absolute;left:-9999px;width:1px;height:1px;',
+            'aria-hidden': 'true',
+        }),
+        label='',
+    )
+
     class Meta:
         model = User
         fields = ('username', 'email', 'password1', 'password2')
+
+    def clean_website(self):
+        if self.cleaned_data.get('website'):
+            raise forms.ValidationError('Bot detected.')
+        return ''
 
 class VerificationForm(forms.Form):
     code = forms.CharField(max_length=6, required=True, help_text='Enter the 6-digit verification code sent to your email.')

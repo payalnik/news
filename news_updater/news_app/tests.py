@@ -84,24 +84,11 @@ class DedupUnitTests(TestCase):
         self.assertIsNone(match)
 
 
-def _fake_gemini_client(items):
-    """A mock google-genai client: generate_content returns `items` as JSON,
-    embed_content returns benign zero vectors (so semantic dedup never fires)."""
-    import json
-    client = MagicMock()
-    client.models.generate_content.return_value = MagicMock(text=json.dumps(items))
-
-    def fake_embed(model, contents, config):
-        n = len(contents) if isinstance(contents, list) else 1
-        return MagicMock(embeddings=[MagicMock(values=[0.0] * 8) for _ in range(n)])
-
-    client.models.embed_content.side_effect = fake_embed
-    return client
-
-
 @override_settings(
     EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend',
     DEFAULT_FROM_EMAIL='test@example.com',
+    OPENROUTER_API_KEY='test-key',
+    OPENROUTER_MODEL='deepseek/deepseek-v4-flash',
 )
 class SendNewsUpdateTests(TestCase):
     def setUp(self):
@@ -113,11 +100,10 @@ class SendNewsUpdateTests(TestCase):
 
     def _run(self, gemini_items, email_should_fail=False):
         from news_app import tasks
+        import json
         cm = patch.object(tasks, 'fetch_url_content', return_value='Some article body')
-        cm2 = patch.object(tasks.genai, 'configure', return_value=None)
-        cm3 = patch.object(tasks.google_genai, 'Client',
-                           return_value=_fake_gemini_client(gemini_items))
-        with cm, cm2, cm3:
+        cm2 = patch.object(tasks.llm, 'chat', return_value=json.dumps(gemini_items))
+        with cm, cm2:
             if email_should_fail:
                 with patch.object(
                         tasks.EmailMultiAlternatives, 'send',

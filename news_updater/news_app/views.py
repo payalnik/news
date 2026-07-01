@@ -17,6 +17,7 @@ from .models import UserProfile, NewsSection, TimeSlot, VerificationCode, NewsIt
 from django.core.paginator import Paginator
 from .forms import SignUpForm, VerificationForm, NewsSectionForm
 from .tasks import send_news_update
+from .ratelimit import client_ip, rate_limited
 
 logger = logging.getLogger(__name__)
 
@@ -44,22 +45,39 @@ def home(request):
 
 def signup(request):
     if request.method == 'POST':
+        # Abuse control: the signup endpoint sends an email per submission, so
+        # an unthrottled POST lets attackers flood victims and stuff the user
+        # table with unverified accounts. Cap per source IP before doing work.
+        ip = client_ip(request)
+        if (rate_limited(f'signup-ip-h:{ip}', settings.SIGNUP_IP_HOURLY_LIMIT, 3600)
+                or rate_limited(f'signup-ip-d:{ip}', settings.SIGNUP_IP_DAILY_LIMIT, 86400)):
+            logger.warning(f'Signup rate limit hit for IP {ip}')
+            messages.error(request, 'Too many sign-up attempts from your network. Please try again later.')
+            return render(request, 'news_app/signup.html', {'form': SignUpForm()})
+
         form = SignUpForm(request.POST)
         if form.is_valid():
+            email = form.cleaned_data['email'].lower()
+            # Don't repeatedly email the same address (subscription bombing).
+            if rate_limited(f'signup-email:{email}', settings.SIGNUP_EMAIL_DAILY_LIMIT, 86400):
+                logger.warning(f'Signup email throttle hit for {email}')
+                messages.error(request, 'This email has reached the sign-up attempt limit for today.')
+                return render(request, 'news_app/signup.html', {'form': SignUpForm()})
+
             user = form.save()
             user_profile = UserProfile.objects.create(user=user)
-            
+
             # Generate verification code
             code = VerificationCode.generate_code()
             VerificationCode.objects.create(user_profile=user_profile, code=code)
-            
+
             # Send verification email
             subject = 'Verify your email for Brew'
             message = f'Your verification code is: {code}'
             from_email = settings.DEFAULT_FROM_EMAIL
             recipient_list = [user.email]
             send_mail(subject, message, from_email, recipient_list)
-            
+
             # Specify the backend when logging in the user
             login(request, user, backend='django.contrib.auth.backends.ModelBackend')
             return redirect('verify_email')
@@ -107,7 +125,13 @@ def resend_verification(request):
     if user_profile.email_verified:
         messages.info(request, 'Your email is already verified.')
         return redirect('dashboard')
-    
+
+    # Throttle resends so a logged-in (but unverified) account can't be used to
+    # bomb its own address with mail.
+    if rate_limited(f'resend:{user_profile.id}', settings.RESEND_HOURLY_LIMIT, 3600):
+        messages.error(request, 'You have requested too many codes. Please wait a while and try again.')
+        return redirect('verify_email')
+
     # Generate new verification code
     code = VerificationCode.generate_code()
     VerificationCode.objects.create(user_profile=user_profile, code=code)

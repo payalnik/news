@@ -17,6 +17,10 @@
                     {% csrf_token %}
 
                     {% for field in form %}
+                        {% if field.name == 'website' %}
+                            {# Honeypot: rendered off-screen, no label/wrapper so real users never see it. #}
+                            <div aria-hidden="true" style="position:absolute;left:-9999px;height:0;overflow:hidden;">{{ field }}</div>
+                        {% else %}
                         <div class="mb-3">
                             <label for="{{ field.id_for_label }}" class="form-label">{{ field.label }}</label>
                             {{ field.errors }}
@@ -25,6 +29,7 @@
                                 <div class="form-text">{{ field.help_text }}</div>
                             {% endif %}
                         </div>
+                        {% endif %}
                     {% endfor %}
 
                     <div class="d-grid">
