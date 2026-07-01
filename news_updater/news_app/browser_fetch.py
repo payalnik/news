@@ -11,11 +11,12 @@ import signal
 import platform
 import threading
 from bs4 import BeautifulSoup
-import requests
 try:
     from urllib.parse import urlparse
 except ImportError:
     from urlparse import urlparse
+
+from .net_guard import safe_get, validate_public_url, UnsafeURLError
 
 # Create specialized loggers
 logger = logging.getLogger(__name__)
@@ -74,7 +75,14 @@ class BrowserSession:
                     get: () => undefined
                 });
             """)
-            
+
+            # SSRF belt-and-suspenders for the browser path: block any request
+            # that isn't http(s), and fully re-validate main-frame navigations
+            # (so a page that 3xx-redirects to an internal host or resolves to a
+            # private IP can't be reached). Full DNS validation is limited to
+            # navigation requests to keep per-subresource overhead low.
+            self.context.route("**/*", self._route_guard)
+
             return self
         except Exception as e:
             logger.error(f"Failed to initialize BrowserSession: {e}")
@@ -101,15 +109,43 @@ class BrowserSession:
         self.browser = None
         self.playwright = None
 
+    def _route_guard(self, route):
+        """Playwright route handler enforcing the SSRF policy on every request."""
+        req_url = route.request.url
+        scheme = urlparse(req_url).scheme
+        if scheme not in ("http", "https"):
+            logger.warning(f"Aborting non-http(s) browser request: {req_url}")
+            route.abort()
+            return
+        # Re-validate main-frame navigations (covers server-side redirects to
+        # internal hosts). Subresources are left to the scheme check above.
+        if route.request.is_navigation_request():
+            try:
+                validate_public_url(req_url)
+            except UnsafeURLError as e:
+                logger.warning(f"Aborting unsafe browser navigation {req_url}: {e}")
+                route.abort()
+                return
+        route.continue_()
+
     def fetch_url(self, url):
         """Fetch content using the existing browser session."""
         if not self.context:
             raise RuntimeError("Browser session is not active")
             
+        # SSRF guard: reject non-http(s) schemes and internal/non-public hosts
+        # before the browser ever navigates (blocks file://, cloud metadata,
+        # localhost, RFC-1918, etc.).
+        try:
+            validate_public_url(url)
+        except UnsafeURLError as e:
+            logger.warning(f"Refusing to browse unsafe URL {url}: {e}")
+            return None
+
         page = None
         try:
             page = self.context.new_page()
-            
+
             # Realistic navigation
             try:
                 page.goto(url, timeout=TIMEOUT * 1000, wait_until="domcontentloaded")
@@ -245,7 +281,7 @@ def fetch_with_playwright(url):
         return None
 
 def fetch_with_requests(url):
-    """Fallback fetch using requests"""
+    """Fallback fetch using requests (SSRF-guarded, size-capped)."""
     try:
         logger.info("Attempting fetch with Requests")
         headers = {
@@ -253,10 +289,13 @@ def fetch_with_requests(url):
             'Accept-Language': 'en-US,en;q=0.9',
             'Referer': 'https://www.google.com/'
         }
-        response = requests.get(url, headers=headers, timeout=TIMEOUT)
+        response = safe_get(url, headers=headers, timeout=TIMEOUT)
         response.raise_for_status()
         # Return content (bytes) to let BeautifulSoup handle encoding detection
         return response.content
+    except UnsafeURLError as e:
+        logger.warning(f"Refusing unsafe URL {url}: {e}")
+        return None
     except Exception as e:
         logger.warning(f"Requests fetch failed: {str(e)}")
         return None
